@@ -6,6 +6,7 @@ os:
   - osx
 
 before_install:
+  - sudo add-apt-repository ppa:ubuntu-toolchain-r/test
   - sudo apt-get update -qq
   - sudo apt-get install -qq build-essential zlib1g-dev ccache cmake libstdc++6
 script: oss_local_scripts/make_egg.sh
