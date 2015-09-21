@@ -3,5 +3,4 @@ python:
   - "2.7"
 os:
   - linux
-  - osx
 script: oss_local_scripts/make_egg.sh
