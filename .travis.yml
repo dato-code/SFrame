@@ -12,4 +12,4 @@ addons:
       - ccache
       - cmake
 
-script: oss_local_scripts/make_egg.sh
+script: oss_local_scripts/make_egg.sh --num_procs=2
