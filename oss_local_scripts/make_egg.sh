@@ -111,7 +111,7 @@ build_source() {
   make oss_clean_python
   cd ${WORKSPACE}/${build_type}/oss_src/unity
   # Make
-  make -j1
+  make -j${NUM_PROCS}
   echo -e "\n\n================= Done Build Source ================\n\n"
 }
 
