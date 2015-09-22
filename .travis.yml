@@ -11,5 +11,8 @@ addons:
       - zlib1g-dev
       - ccache
       - cmake
+cache:
+  directories:
+    - $HOME/.ccache
 
 script: oss_local_scripts/make_egg.sh --num_procs=2

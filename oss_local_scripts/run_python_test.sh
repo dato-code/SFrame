@@ -41,5 +41,5 @@ else
         fi
         cmd="${cmd} ${NOSETEST_EXECUTABLE} -v --with-id -s --with-xunit --xunit-file={}.nosetests.xml --id-file={}.noseid {}"
         echo "Tests are running in parallel. Output is buffered until job is done..."
-        find sframe/test -name "*.py" | parallel --group -P 4 $cmd
+        find sframe/test -name "*.py" | parallel --group $cmd
 fi
