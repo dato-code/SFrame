@@ -6,9 +6,10 @@ os:
 
 addons:
   apt:
-    - build-essential
-    - zlib1g-dev
-    - ccache
-    - cmake
+    packages:
+      - build-essential
+      - zlib1g-dev
+      - ccache
+      - cmake
 
 script: oss_local_scripts/make_egg.sh
