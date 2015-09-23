@@ -25,6 +25,8 @@ export DATO_VERBOSE=1
 cd $GRAPHLAB_BUILD_ROOT/oss_src/unity/python
 make -j4
 
+df -h
+
 find . -name "*.xml" -delete
 if ! type "parallel" > /dev/null; then
         cmd=""
@@ -44,4 +46,3 @@ else
         find sframe/test -name "*.py" | parallel --group $cmd
 fi
 
-df -h
