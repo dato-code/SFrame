@@ -43,3 +43,5 @@ else
         echo "Tests are running in parallel. Output is buffered until job is done..."
         find sframe/test -name "*.py" | parallel --group $cmd
 fi
+
+df -h
