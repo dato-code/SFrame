@@ -124,7 +124,8 @@ unit_test() {
   export AWS_SECRET_ACCESS_KEY='McwuD++Sj16Kybg3FDFCkSUnh462uz8bXfEp50q8'
 
   cd ${WORKSPACE}
-  oss_local_scripts/run_python_test.sh ${build_type}
+  oss_local_scripts/run_python_test.sh ${build_type} || true
+  df -h
   echo -e "\n\n================= Done Unit Test ================\n\n"
 }
 
