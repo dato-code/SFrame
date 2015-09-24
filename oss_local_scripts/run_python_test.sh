@@ -25,6 +25,8 @@ export DATO_VERBOSE=1
 cd $GRAPHLAB_BUILD_ROOT/oss_src/unity/python
 make -j4
 
+df -h
+
 find . -name "*.xml" -delete
 if ! type "parallel" > /dev/null; then
         cmd=""
@@ -41,5 +43,6 @@ else
         fi
         cmd="${cmd} ${NOSETEST_EXECUTABLE} -v --with-id -s --with-xunit --xunit-file={}.nosetests.xml --id-file={}.noseid {}"
         echo "Tests are running in parallel. Output is buffered until job is done..."
-        find sframe/test -name "*.py" | parallel --group -P 4 $cmd
+        find sframe/test -name "*.py" | parallel --group $cmd
 fi
+

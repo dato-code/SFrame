@@ -272,6 +272,7 @@ class SArraySketchTest(unittest.TestCase):
         t = sketch.frequent_items()
         self.assertEqual(len(t), 0)
 
+    @unittest.skip("demonstrating skipping")
     def test_background_sketch(self):
         dict_data = [{str(i):1} for i in range(1,10000)]
         sa = SArray(dict_data)

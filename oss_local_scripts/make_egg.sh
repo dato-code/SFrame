@@ -120,7 +120,8 @@ unit_test() {
   echo -e "\n\n\n================= Running Unit Test ================\n\n\n"
 
   cd ${WORKSPACE}
-  oss_local_scripts/run_python_test.sh ${build_type}
+  oss_local_scripts/run_python_test.sh ${build_type} || true
+  df -h
   echo -e "\n\n================= Done Unit Test ================\n\n"
 }
 

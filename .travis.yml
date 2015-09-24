@@ -3,9 +3,16 @@ python:
   - "2.7"
 os:
   - linux
-  - osx
 
-before_install:
-  - sudo apt-get update -qq
-  - sudo apt-get install -qq build-essential zlib1g-dev ccache cmake libstdc++6
-script: oss_local_scripts/make_egg.sh
+addons:
+  apt:
+    packages:
+      - build-essential
+      - zlib1g-dev
+      - ccache
+      - cmake
+cache:
+  directories:
+    - $HOME/.ccache
+
+script: oss_local_scripts/make_egg.sh --num_procs=2
