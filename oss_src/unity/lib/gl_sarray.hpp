@@ -15,6 +15,7 @@
 #include <iostream>
 #include <sframe/sframe_rows.hpp>
 #include <flexible_type/flexible_type.hpp>
+#include "sframe_sarray_type_conversions.hpp"
 
 namespace graphlab {
 /**************************************************************************/

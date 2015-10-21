@@ -27,6 +27,7 @@ make_library(unity_core
     unity_odbc_connection.cpp
     image_util.cpp
     ../extensions/additional_sframe_utilities.cpp
+    sframe_sarray_type_conversions.cpp
   REQUIRES
     flexible_type
     pylambda table_printer
