@@ -13,8 +13,9 @@ from .cy_variant cimport to_dict as variant_map_to_dict
 from .cy_variant cimport from_value as variant_from_value
 from .cy_variant cimport make_shared_variant
 
-from .cy_flexible_type cimport pylist_from_flex_list
-from .cy_flexible_type cimport flex_list_from_iterable
+from .cy_type_utils cimport py_check_flex_image
+from .cy_flexible_type cimport pylist_from_glvec
+from .cy_flexible_type cimport glvec_from_iterable
 from .cy_flexible_type cimport pyobject_from_flexible_type
 from .cy_flexible_type cimport flexible_type_from_pyobject
 from .cy_flexible_type cimport pydict_from_gl_options_map
@@ -118,7 +119,7 @@ cdef class UnityGlobalProxy:
         from .. import util
         cdef string lambda_str = util._pickle_to_temp_location_or_memory(fn)
         cdef vector[string] keys = arg.keys()
-        cdef flex_list values = flex_list_from_iterable([arg[k] for k in arg])
+        cdef gl_vec values = glvec_from_iterable([arg[k] for k in arg])
         cdef flexible_type ret = self.thisptr.eval_dict_lambda(lambda_str, keys, values)
         return pyobject_from_flexible_type(ret)
 
@@ -126,9 +127,9 @@ cdef class UnityGlobalProxy:
         assert inspect.isfunction(fn), "First argument must be a function"
         from .. import util
         cdef string lambda_str = util._pickle_to_temp_location_or_memory(fn)
-        cdef vector[flexible_type] flex_vec = flex_list_from_iterable(argument_list)
+        cdef vector[flexible_type] flex_vec = glvec_from_iterable(argument_list)
         cdef vector[flexible_type] ret = self.thisptr.parallel_eval_lambda(lambda_str, flex_vec)
-        return pylist_from_flex_list(ret)
+        return pylist_from_glvec(ret)
 
     cpdef clear_metrics_server(self):
         self.thisptr.clear_metrics_server()

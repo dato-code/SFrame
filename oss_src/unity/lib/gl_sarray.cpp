@@ -28,15 +28,9 @@ static graphlab::mutex reader_shared_ptr_lock;
  */
 flex_type_enum infer_type_of_list(const std::vector<flexible_type>& vec) {
   std::set<flex_type_enum> types;
-
-  // Since most of the types we encountered are likely to be the same,
-  // as an optimization only add new ones to the set and ignore the
-  // previous type.
-  flex_type_enum last_type = flex_type_enum::UNDEFINED;
   for (const flexible_type& val: vec) {
-    if(val.get_type() != last_type && val.get_type() != flex_type_enum::UNDEFINED) {
+    if (val.get_type() != flex_type_enum::UNDEFINED) {
       types.insert(val.get_type());
-      last_type = val.get_type();
     }
   }
   if (types.size() == 0) return flex_type_enum::FLOAT;

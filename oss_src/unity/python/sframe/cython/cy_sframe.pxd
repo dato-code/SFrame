@@ -9,7 +9,7 @@ from .cy_ipc cimport comm_client
 from .cy_ipc cimport PyCommClient
 from .cy_flexible_type cimport flexible_type
 from .cy_flexible_type cimport flex_type_enum
-from .cy_flexible_type cimport flex_list
+from .cy_flexible_type cimport gl_vec
 from .cy_flexible_type cimport gl_options_map
 from .cy_dataframe cimport gl_dataframe
 

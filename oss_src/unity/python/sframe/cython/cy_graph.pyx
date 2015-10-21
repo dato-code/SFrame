@@ -9,9 +9,9 @@ from cython.operator cimport dereference as deref
 
 from cy_flexible_type cimport pytype_from_flex_type_enum 
 from cy_flexible_type cimport pydict_from_gl_options_map
-from cy_flexible_type cimport pylist_from_flex_list
+from cy_flexible_type cimport pylist_from_glvec
 from cy_flexible_type cimport gl_options_map_from_pydict 
-from cy_flexible_type cimport flex_list_from_iterable
+from cy_flexible_type cimport glvec_from_iterable
 
 from cy_sframe import UnitySFrameProxy
 from cy_sframe cimport create_proxy_wrapper_from_existing_proxy as sframe_proxy 
@@ -74,7 +74,7 @@ cdef class UnityGraphProxy:
 
     cpdef get_vertices(self, object ids, object field_constraints,
         size_t group=0):
-        cdef flex_list id_vec = flex_list_from_iterable(ids)
+        cdef gl_vec id_vec = glvec_from_iterable(ids)
         cdef gl_options_map field_map = gl_options_map_from_pydict(field_constraints)
         cdef unity_sframe_base_ptr result 
         with nogil:
@@ -83,8 +83,8 @@ cdef class UnityGraphProxy:
 
     cpdef get_edges(self, object src_ids, object dst_ids, object field_constraints,
         size_t groupa=0, size_t groupb=0):
-        cdef flex_list src_vec = flex_list_from_iterable(src_ids)
-        cdef flex_list dst_vec = flex_list_from_iterable(dst_ids)
+        cdef gl_vec src_vec = glvec_from_iterable(src_ids)
+        cdef gl_vec dst_vec = glvec_from_iterable(dst_ids)
         cdef gl_options_map field_map = gl_options_map_from_pydict(field_constraints)
         cdef unity_sframe_base_ptr result 
         with nogil:

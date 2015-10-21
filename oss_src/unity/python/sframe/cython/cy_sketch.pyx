@@ -9,11 +9,11 @@ from .cy_ipc cimport PyCommClient
 from .cy_ipc cimport comm_client
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement as inc
-from .cy_flexible_type cimport flex_list
+from .cy_flexible_type cimport gl_vec
 from .cy_flexible_type cimport flexible_type 
 from .cy_flexible_type cimport flexible_type_from_pyobject
 from .cy_flexible_type cimport pyobject_from_flexible_type 
-from .cy_flexible_type cimport flex_list_from_iterable
+from .cy_flexible_type cimport glvec_from_iterable
 
 
 cdef create_proxy_wrapper_from_existing_proxy(PyCommClient cli, const unity_sketch_base_ptr& proxy):
@@ -38,7 +38,7 @@ cdef class UnitySketchProxy:
             self._base_ptr.reset(<unity_sketch_base*>(self.thisptr))
 
     cpdef construct_from_sarray(self, UnitySArrayProxy sarray, bint background, object elements):
-        cdef flex_list keys = flex_list_from_iterable(elements)
+        cdef gl_vec keys = glvec_from_iterable(elements)
         self.thisptr.construct_from_sarray(sarray._base_ptr, background, keys)
 
     cpdef get_quantile(self, double quantile):
@@ -105,7 +105,7 @@ cdef class UnitySketchProxy:
         return create_proxy_wrapper_from_existing_proxy(self._cli, proxy)
 
     cpdef element_sub_sketch(self, object keys):
-        sketches = self.thisptr.element_sub_sketch(flex_list_from_iterable(keys))
+        sketches = self.thisptr.element_sub_sketch(glvec_from_iterable(keys))
         ret = {}
         #cdef map[flexible_type,unity_sketch_proxy*].iterator it = sketches.begin()
         it = sketches.begin()

@@ -1,4 +1,3 @@
-
 """
 This module defines the SFrame class which provides the
 ability to create, access and manipulate a remote scalable dataframe object.
@@ -16,7 +15,7 @@ of the BSD license. See the LICENSE file for details.
 '''
 from .. import connect as _mt
 from ..connect import main as glconnect
-from ..cython.cy_flexible_type import infer_type_of_list
+from ..cython.cy_type_utils import infer_type_of_list
 from ..cython.context import debug_trace as cython_context
 from ..cython.cy_sframe import UnitySFrameProxy
 from ..util import _make_internal_url

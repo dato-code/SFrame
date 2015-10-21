@@ -9,7 +9,7 @@ from .cy_ipc cimport comm_client
 from .cy_ipc cimport PyCommClient
 from .cy_flexible_type cimport flex_type_enum
 from .cy_flexible_type cimport flexible_type
-from .cy_flexible_type cimport flex_list
+from .cy_flexible_type cimport gl_vec
 from .cy_flexible_type cimport gl_options_map
 from libcpp.vector cimport vector
 from libcpp.string cimport string
@@ -20,7 +20,7 @@ from .cy_unity cimport make_function_closure_info
 cdef extern from "<unity/lib/api/unity_sarray_interface.hpp>" namespace 'graphlab':
     cdef cppclass unity_sarray_proxy nogil:
         unity_sarray_proxy(comm_client) except +
-        void construct_from_vector(const flex_list&, flex_type_enum) except +
+        void construct_from_vector(const gl_vec&, flex_type_enum) except +
         void construct_from_const(const flexible_type&, size_t) except +
         void construct_from_files(string, flex_type_enum) except +
         void construct_from_sarray_index(string) except +
@@ -57,7 +57,7 @@ cdef extern from "<unity/lib/api/unity_sarray_interface.hpp>" namespace 'graphla
         unity_sarray_base_ptr nonzero() except +
         unity_sarray_base_ptr tail(size_t) except +
         void begin_iterator() except +
-        flex_list iterator_get_next(size_t) except +
+        gl_vec iterator_get_next(size_t) except +
         unity_sarray_base_ptr left_scalar_operator(flexible_type, string) except +
         unity_sarray_base_ptr right_scalar_operator(flexible_type, string) except +
         unity_sarray_base_ptr vector_operator(unity_sarray_base_ptr, string) except +

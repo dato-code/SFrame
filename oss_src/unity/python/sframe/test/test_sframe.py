@@ -196,7 +196,6 @@ class SFrameTest(unittest.TestCase):
             self.assertEqual(sf.dtype(), [float, int, str])
             self.__test_equal(sf, df)
 
-
     def test_parse_csv(self):
         with tempfile.NamedTemporaryFile(delete=False) as csvfile:
             self.dataframe.to_csv(csvfile, index=False)
@@ -1373,20 +1372,15 @@ class SFrameTest(unittest.TestCase):
         sf['c'] = ['a','b','a','b',     'e','e', None,   'h',   'i','j',  'k']
         sf['d'] = [1.0,2.0,1.0,2.0,      3.0,3.0,1.0,    4.0,   None, 2.0,  None]
         sf['e'] = [{'x': 1}] * len(sf['a'])
-
-        print sf['b'].dtype()
-
         result = sf.groupby('a', aggregate.CONCAT('b'))
         expected_result = SFrame({
             'a': [1,2,3,4, 5],
-            'List of b': [[1.,1.,2.,2.],[1.,3.,3.],[4.],[2.], []]
+            'List of b': [[1,1,2,2],[1,3,3],[4],[2], []]
             })
         expected_result['List of b'] = expected_result['List of b'].astype(list)
         self.__assert_concat_result_equal(result.sort('a'), expected_result.sort('a'), ['List of b'])
 
-
         result = sf.groupby('a', aggregate.CONCAT('d'))
-
         expected_result = SFrame({
             'a': [1,2,3,4, 5],
             'List of d': [[1,1,2,2],[1,3,3],[4],[2], []]

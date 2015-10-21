@@ -16,8 +16,7 @@ of the BSD license. See the LICENSE file for details.
 
 from .. import connect as _mt
 from ..connect import main as glconnect
-from ..cython.cy_flexible_type import pytype_from_dtype, pytype_from_array_typecode
-from ..cython.cy_flexible_type import infer_type_of_list, infer_type_of_sequence
+from ..cython.cy_type_utils import pytype_from_dtype, infer_type_of_list, is_numeric_type
 from ..cython.cy_sarray import UnitySArrayProxy
 from ..cython.context import debug_trace as cython_context
 from ..util import _make_internal_url
@@ -28,7 +27,6 @@ from ..deps import pandas, HAS_PANDAS
 
 import time
 import array
-import collections
 import datetime
 import warnings
 import numbers
@@ -324,7 +322,7 @@ class SArray(object):
                     dtype = pytype_from_dtype(data.dtype)
                     if dtype == object:
                         # we need to get a bit more fine grained than that
-                        dtype = infer_type_of_sequence(data.values)
+                        dtype = infer_type_of_list(data)
 
                 elif HAS_NUMPY and isinstance(data, numpy.ndarray):
                     # first try the fast inproc method
@@ -337,8 +335,6 @@ class SArray(object):
                             # swap the proxy.
                             self.__proxy__, ret.__proxy__ = ret.__proxy__, self.__proxy__
                             return
-                        else:
-                            dtype = infer_type_of_sequence(data)
                     except:
                         pass
 
@@ -346,7 +342,7 @@ class SArray(object):
                     dtype = pytype_from_dtype(data.dtype)
                     if dtype == object:
                         # we need to get a bit more fine grained than that
-                        dtype = infer_type_of_sequence(data)
+                        dtype = infer_type_of_list(data)
                     if len(data.shape) == 2:
                         # we need to make it an array or a list
                         if dtype == float or dtype == int:
@@ -359,28 +355,25 @@ class SArray(object):
                 elif (isinstance(data, str) or isinstance(data, unicode)):
                     # if it is a file, we default to string
                     dtype = str
-                elif isinstance(data, array.array):
-                    dtype = pytype_from_array_typecode(data.typecode)
-                elif isinstance(data, collections.Sequence):
-                    # Covers any ordered python container and arrays.
-                    # Convert it to a list first.
-                    dtype = infer_type_of_sequence(data)
-                else:
-                    dtype = None
+                elif hasattr(data, '__iter__') and not isinstance(data, dict):
+                    # if it is a list, Get the first type and make sure
+                    # the remaining items are all of the same type
+                    #
+                    # While dicts are iterable, we disable constructing SArrays
+                    # in this way since it is really strange that
+                    # SArray({1:2,3:4}) --> SArray of [1,3]
+                    dtype = infer_type_of_list(data)
 
             if HAS_PANDAS and isinstance(data, pandas.Series):
                 with cython_context():
                     self.__proxy__.load_from_iterable(data.values, dtype, ignore_cast_failure)
+            elif (HAS_NUMPY and isinstance(data, numpy.ndarray)) or (hasattr(data, '__iter__') and not isinstance(data, dict)):
+                with cython_context():
+                    self.__proxy__.load_from_iterable(data, dtype, ignore_cast_failure)
             elif (isinstance(data, str) or isinstance(data, unicode)):
                 internal_url = _make_internal_url(data)
                 with cython_context():
                     self.__proxy__.load_autodetect(internal_url, dtype)
-            elif ((HAS_NUMPY and isinstance(data, numpy.ndarray))
-                  or isinstance(data, array.array)
-                  or isinstance(data, collections.Sequence)):
-
-                with cython_context():
-                    self.__proxy__.load_from_iterable(data, dtype, ignore_cast_failure)
             else:
                 raise TypeError("Unexpected data source. " \
                                 "Possible data source types are: list, " \
@@ -1426,10 +1419,10 @@ class SArray(object):
         [{'this': 1, 'is': 5}, {'this': 2, 'are': 1, 'cat': 5}]
         """
 
-        if not (lower is None or isinstance(lower, numbers.Number)):
+        if None != lower and (not is_numeric_type(type(lower))):
             raise TypeError("lower bound has to be a numeric value")
 
-        if not (upper is None or isinstance(upper, numbers.Number)):
+        if None != upper and (not is_numeric_type(type(upper))):
             raise TypeError("upper bound has to be a numeric value")
 
         _mt._get_metric_tracker().track('sarray.dict_trim_by_values')
