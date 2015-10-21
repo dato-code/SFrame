@@ -9,7 +9,7 @@ from .cy_ipc cimport comm_client
 from .cy_ipc cimport PyCommClient 
 
 from .cy_flexible_type cimport flexible_type 
-from .cy_flexible_type cimport flex_list
+from .cy_flexible_type cimport gl_vec
 from .cy_flexible_type cimport gl_options_map
 from .cy_flexible_type cimport flex_type_enum 
 
@@ -33,8 +33,8 @@ cdef extern from "<unity/lib/api/unity_graph_interface.hpp>" namespace 'graphlab
 
         gl_options_map summary() except +
 
-        unity_sframe_base_ptr get_vertices(flex_list, gl_options_map, size_t) except +
-        unity_sframe_base_ptr get_edges(flex_list, flex_list, gl_options_map, size_t, size_t) except +
+        unity_sframe_base_ptr get_vertices(gl_vec, gl_options_map, size_t) except +
+        unity_sframe_base_ptr get_edges(gl_vec, gl_vec, gl_options_map, size_t, size_t) except +
 
         unity_sgraph_base_ptr add_vertices(unity_sframe_base_ptr, string, size_t) except +
         unity_sgraph_base_ptr add_edges(unity_sframe_base_ptr, string, string, size_t, size_t) except +

@@ -7,278 +7,23 @@ of the BSD license. See the LICENSE file for details.
 '''
 import unittest
 import numpy as np
-from numpy import nan
 import array
 import datetime as dt
 from ..data_structures import image
 from .. import SArray
 import os
-from ..cython.cy_flexible_type import _translate_through_flexible_type as _flexible_type
-from ..cython.cy_flexible_type import _translate_through_flex_list as _tr_flex_list
-from ..cython.cy_flexible_type import infer_type_of_list
-from ..cython.cy_flexible_type import _get_inferred_column_type, _all_convertable
+from ..cython.cy_flexible_type import _flexible_type, _gl_vec
+from ..cython.cy_type_utils import infer_type_of_list
 from ..util.timezone import GMT
-import datetime
-from itertools import product
-from copy import copy
-
-NoneType = type(None)
 
 current_file_dir = os.path.dirname(os.path.realpath(__file__))
+
 
 def from_lambda(v):
     from ..connect import main as glconnect
     u = glconnect.get_unity()
     return u.eval_lambda(lambda x: x, v)
 
-special_types = set()
-
-IntegerValue = (
-    [int(0), long(1)]
-     + [_dt(0) for _dt in (np.sctypes['int'] + np.sctypes['uint']
-                         + [np.bool, bool, np.bool_])])
-special_types.add(id(IntegerValue))
-
-FloatValue = [float(0)] + [_dt(0) for _dt in np.sctypes['float']]
-special_types.add(id(FloatValue))
-
-StringValue = ([str('bork'), unicode('bork')]
-               + [_dt('bork') for _dt in
-                  [np.unicode, np.unicode_, str, unicode, np.str,
-                   np.str_, np.string_]])
-special_types.add(id(StringValue))
-
-DictValue = [{'a' : 12}, dict()]
-special_types.add(id(DictValue))
-
-DatetimeValue = [datetime.date(2000, 6, 12),
-                 datetime.date(1100, 1, 1),
-                 datetime.datetime(2000, 6, 12)]
-special_types.add(id(DatetimeValue))
-
-AnyValue = IntegerValue + FloatValue + StringValue + DatetimeValue + DictValue
-special_types.add(id(AnyValue))
-
-# All the different types of float sequences we support
-FloatSequence = (
-    [[0.5, 1.5, 2.5], (0.5, 1.5, 2.5)]
-    + [array.array(c, [0.5, 1.5, 2.5]) for c in 'fd']
-    + [np.array([0.5, 1.5, 2.5], dtype= _dt) for _dt in np.sctypes['float']])
-special_types.add(id(FloatSequence))
-
-# All the different types of float sequences we support
-FloatSequenceWithNAN = (
-    [[0.5, 1.5, 2.5, nan], (0.5, 1.5, 2.5, nan)]
-    + [array.array(c, [0.5, 1.5, 2.5, nan]) for c in 'fd']
-    + [np.array([0.5, 1.5, 2.5, nan], dtype= _dt) for _dt in np.sctypes['float']])
-special_types.add(id(FloatSequenceWithNAN))
-
-# All the different types of float sequences we support
-FloatSequenceWithNone = (
-    [[0.5, 1.5, 2.5, None], (0.5, 1.5, 2.5, None)])
-special_types.add(id(FloatSequenceWithNone))
-
-# All the different integer sequences we support
-IntegerSequence = (
-    [[int(i) for i in range(3)]
-     , [long(i) for i in range(3)]
-     , tuple(range(3))
-     , tuple(long(i) for i in range(3))]
-    + [array.array(c, range(3)) for c in 'bBhHiIlL']
-    + [np.array(range(3), dtype = _dt) for _dt in np.sctypes['int']]
-    + [np.array(range(3), dtype = _dt) for _dt in np.sctypes['uint']])
-special_types.add(id(IntegerSequence))
-
-# All the different integer sequences we support, with a Nan
-IntegerSequenceWithNAN = (
-    [[int(i) for i in range(3)] + [nan]
-     , [long(i) for i in range(3)] + [nan]
-     , tuple(range(3)) + (nan,)
-     , tuple(long(i) for i in range(3)) + (nan,)])
-special_types.add(id(IntegerSequenceWithNAN))
-
-# All the different types of string
-IntegerSequenceWithNone = (
-    [[int(i) for i in range(3)] + [None]
-     , [long(i) for i in range(3)] + [None]
-     , tuple(range(3)) + (None,)
-     , tuple(long(i) for i in range(3)) + (None,)])
-special_types.add(id(IntegerSequenceWithNone))
-
-# Empty but typed float arrays
-EmptyFloatArray = (
-    [array.array(c, []) for c in 'fd']
-    + [np.array([], dtype= _dt) for _dt in np.sctypes['float']])
-special_types.add(id(EmptyFloatArray))
-
-# Empty but typed integer arrays
-EmptyIntegerArray = (
-    [array.array(c, []) for c in 'cbBhHiIlL']
-    + [np.array([], dtype= _dt) for _dt in np.sctypes['int']]
-    + [np.array([], dtype= _dt) for _dt in np.sctypes['uint']])
-special_types.add(id(EmptyIntegerArray))
-
-# All empty arrays
-EmptyArray = EmptyIntegerArray + EmptyFloatArray
-special_types.add(id(EmptyArray))
-
-EmptySequence = [[], tuple()]
-special_types.add(id(EmptySequence))
-
-# Boolean Sequences
-BooleanSequence = (
-    [ list( (i%2 == 0) for i in range(3))
-      , tuple( (i%2 == 0) for i in range(3)) ]
-    + [np.array([i%2==0 for i in range(3)], dtype= _dt)
-       for _dt in [np.bool, np.bool_, bool]])
-special_types.add(id(BooleanSequence))
-
-# String sequences
-StringSequence = (
-    [ list( str(i) for i in range(3))
-      , tuple( str(i) for i in range(3))]
-    + [np.array([_dt('a'), _dt('b')], dtype = _dt)
-       for _dt in [np.unicode, np.unicode_, str, unicode, np.str, np.str_, np.string_]]
-    + [np.array([_dt('a'), _dt('b')], dtype = object)
-       for _dt in [np.unicode, np.unicode_, str, unicode, np.str, np.str_, np.string_]])
-special_types.add(id(StringSequence))
-
-AnySequence = (EmptySequence + BooleanSequence + StringSequence
-               + IntegerSequence + IntegerSequenceWithNone + IntegerSequenceWithNAN
-               + FloatSequence + FloatSequenceWithNone + FloatSequenceWithNAN
-               + EmptyArray)
-special_types.add(id(AnySequence))
-
-def verify_inference(values, expected_type):
-
-    # Go through and build a list of all the possible value enumerations that need to be tested.
-    def build_lookups(values, L):
-        for v in values:
-            if id(v) in special_types:
-                L.append(range(len(v)))
-            elif type(v) is list:
-                build_lookups(v, L)
-
-    indices = []
-    build_lookups(values, indices)
-
-    def get_value(values, idx_set):
-        ret = copy(values)
-        for i, v in enumerate(values):
-            if id(v) in special_types:
-                ret[i] = v[idx_set[-1]]
-                del idx_set[-1]
-            elif type(v) is list:
-                ret[i] = get_value(v, idx_set)
-        return ret
-
-    for idx_set in product(*reversed(indices)):
-        _v_list = get_value(values, list(idx_set))
-
-        for add_none in [True, False]:
-            v_list = _v_list + [None] if add_none else _v_list
-
-            inferred_type, result = _get_inferred_column_type(v_list)
-
-            if inferred_type != expected_type:
-                assert False, ("Expected type %s, got type %s; input value = %s."
-                               % (str(expected_type), str(inferred_type), str(v_list)))
-
-            if inferred_type != NoneType:
-                reconverted_result = _tr_flex_list(result, inferred_type)
-                assert str(result) == str(reconverted_result), \
-                  (("Values in type translated inconsistently: "
-                    "\nInput value  = %s"
-                    "\nOutput value = %s"
-                    "\nReconverted  = %s")
-                   % (str(v_list), str(result), reconverted_result))
-
-
-
-class FlexibleTypeInference(unittest.TestCase):
-
-    def test_int_float(self):
-        verify_inference([IntegerValue], int)
-        verify_inference([IntegerValue, IntegerValue], int)
-        verify_inference([IntegerValue, FloatValue], float)
-        verify_inference([IntegerValue, nan], float)
-        verify_inference([], int)
-        verify_inference([None], int)
-        verify_inference([IntegerValue, nan], float)
-        verify_inference([IntegerValue, None, nan], float)
-        verify_inference([IntegerValue, None, FloatValue], float)
-        verify_inference([IntegerValue, None, FloatValue, nan], float)
-
-    def test_string(self):
-        verify_inference([StringValue], str)
-        verify_inference([StringValue, StringValue], str)
-        verify_inference([StringValue, IntegerValue], NoneType)
-        verify_inference([StringValue, FloatValue], NoneType)
-
-    def test_dict(self):
-        verify_inference([DictValue], dict)
-        verify_inference([DictValue, DictValue], dict)
-
-    def test_mixed_types(self):
-        verify_inference([AnySequence, AnyValue], NoneType)
-        verify_inference([AnySequence, AnyValue, AnySequence], NoneType)
-        verify_inference([AnySequence, AnyValue, AnyValue], NoneType)
-        verify_inference([DatetimeValue, StringValue], NoneType)
-        verify_inference([DatetimeValue, IntegerValue], NoneType)
-        verify_inference([DatetimeValue, FloatValue], NoneType)
-
-    def test_array_list(self):
-
-        tests = [
-
-        # Individual types
-        ([EmptySequence], list),
-        ([IntegerSequence], array.array),
-        ([IntegerSequenceWithNone], list),
-        ([IntegerSequenceWithNAN], array.array),
-        ([FloatSequence], array.array),
-        ([FloatSequenceWithNAN], array.array),
-        ([FloatSequenceWithNone], list),
-        ([EmptyIntegerArray], array.array),
-        ([EmptyFloatArray], array.array),
-        ([BooleanSequence], array.array),
-        ([StringSequence], list),
-
-        # Multiple types
-        ([IntegerSequence, FloatSequence], array.array),
-        ([IntegerSequence, FloatSequence], array.array),
-
-        # Multiple types
-        ([EmptySequence, EmptyFloatArray], array.array),
-        ([EmptySequence, EmptyIntegerArray], array.array),
-        ([EmptySequence, IntegerSequence], array.array),
-        ([EmptySequence, FloatSequence], array.array),
-
-        # Multiple types
-        ([EmptySequence, EmptyFloatArray], array.array),
-        ([EmptySequence, EmptyIntegerArray], array.array),
-        ([EmptySequence, IntegerSequence], array.array),
-        ([EmptySequence, FloatSequence], array.array),
-
-        # Arrays and lists
-        ([StringSequence, EmptyFloatArray], list),
-        ([StringSequence, EmptyIntegerArray], list),
-        ([StringSequence, IntegerSequence], list),
-        ([StringSequence, FloatSequence], list)]
-
-        # Add in additional rules for testing
-        for tv, res in copy(tests):
-            tests.append( (tv + [EmptySequence], res) )
-
-        for tv, res in copy(tests):
-            tests.append( (tv + [[None]], list) )
-
-        for tv, res in copy(tests):
-            tests.append( (tv + [StringSequence], list) )
-
-        # Run the tests
-        for tv, res in tests:
-            verify_inference(tv, res)
 
 class FlexibleTypeTest(unittest.TestCase):
 
@@ -292,14 +37,14 @@ class FlexibleTypeTest(unittest.TestCase):
         else:
             return v
 
-    def assert_equal_with_lambda_check(self, translated, correct):
-        self.assertEqual(translated, correct)
-        self.assertEqual(from_lambda(translated), self.numeric_list_to_array(correct))
+    def assert_equal_with_lambda_check(self, expected, actual):
+        self.assertEqual(expected, actual)
+        self.assertEqual(from_lambda(expected), self.numeric_list_to_array(actual))
 
     def test_none(self):
         self.assert_equal_with_lambda_check(_flexible_type(None), None)
     def test_date_time(self):
-        d = datetime.datetime(2010, 10, 10, 10, 10, 10);
+        d = dt.datetime(2010, 10, 10, 10, 10, 10);
         self.assert_equal_with_lambda_check(_flexible_type(d),d)
     def test_int(self):
         self.assert_equal_with_lambda_check(_flexible_type(1), 1)
@@ -322,13 +67,13 @@ class FlexibleTypeTest(unittest.TestCase):
         self.assert_equal_with_lambda_check(_flexible_type(np.bool8(0)), 0)
 
     def test_float(self):
-        self.assert_equal_with_lambda_check(_flexible_type(0.25), 0.25)
+        self.assert_equal_with_lambda_check(_flexible_type(0.1), 0.1)
         # numpy types
-        self.assert_equal_with_lambda_check(_flexible_type(np.float(0.25)), 0.25)
-        self.assert_equal_with_lambda_check(_flexible_type(np.float_(0.25)), 0.25)
-        self.assert_equal_with_lambda_check(_flexible_type(np.float16(0.25)), 0.25)
-        self.assert_equal_with_lambda_check(_flexible_type(np.float32(0.25)), 0.25)
-        self.assert_equal_with_lambda_check(_flexible_type(np.float64(0.25)), 0.25)
+        self.assert_equal_with_lambda_check(_flexible_type(np.float(0.1)), 0.1)
+        self.assert_equal_with_lambda_check(_flexible_type(np.float_(0.1)), 0.1)
+        self.assertAlmostEqual(_flexible_type(np.float16(0.1)), 0.1, delta=0.001)  # not exact
+        self.assertAlmostEqual(_flexible_type(np.float32(0.1)), 0.1)  # not exact
+        self.assertAlmostEqual(_flexible_type(np.float64(0.1)), 0.1)  # not exact
 
     def test_string(self):
         self.assert_equal_with_lambda_check(_flexible_type("a"), "a")
@@ -345,7 +90,6 @@ class FlexibleTypeTest(unittest.TestCase):
         # int array
         expected = array.array('d', [1, 2, 3])
         self.assert_equal_with_lambda_check(_flexible_type([1, 2, 3]), expected)
-        self.assert_equal_with_lambda_check(_flexible_type([1.0, 2.0, 3.0]), expected)
         self.assert_equal_with_lambda_check(_flexible_type([1, 2, 3.0]), expected)
 
         # numpy ndarray
@@ -369,11 +113,10 @@ class FlexibleTypeTest(unittest.TestCase):
         expected = [{'a': 1, 'b': 20, 'c': None}, {"b": 4, None: 5}, None, {'a': 0}]
         self.assert_equal_with_lambda_check(_flexible_type(expected), expected)
 
-    def test_list(self):
+    def test_recursive(self):
         d = dt.datetime(2010, 10, 10, 10, 10, 10)
         img = image.Image(current_file_dir + "/images/nested/sample_grey.jpg","JPG")
         expected = [None, img, 1, 0.1, '1',d,array.array('d', [1, 2, 3]), {'foo': array.array('d', [1, 2,3])}]
-
         self.assert_equal_with_lambda_check(_flexible_type(expected), expected)
         self.assert_equal_with_lambda_check(_flexible_type([]), [])
         self.assert_equal_with_lambda_check(_flexible_type([[], []]), [[], []])
@@ -398,15 +141,15 @@ class FlexibleTypeTest(unittest.TestCase):
         self.assert_equal_with_lambda_check(_flexible_type(img_color_auto_jpg),img_color_auto_jpg)
         self.assert_equal_with_lambda_check(_flexible_type(img_color_auto_png),img_color_auto_png)
 
-    def test_tr_flex_list(self):
+    def test_gl_vec(self):
         expected = []
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected), expected)
 
         # test int list
         expected = [1, 2, 3, 4, 5, None]
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected), expected)
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, int), expected)
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, int, ignore_cast_failure=True), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected, int), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected, int, ignore_cast_failure=True), expected)
 
         # test datetime list
         from_zone = GMT(0)
@@ -414,41 +157,39 @@ class FlexibleTypeTest(unittest.TestCase):
         d1 = dt.datetime(2010, 10, 10, 10, 10, 10).replace(tzinfo=from_zone)
         d2 = d1.astimezone(to_zone)
         expected = [d1,d2, None]
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected), expected)
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, dt.datetime), expected)
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, dt.datetime, ignore_cast_failure=True), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected, dt.datetime), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected, dt.datetime, ignore_cast_failure=True), expected)
         # test image list
         img_gray_auto_png = image.Image(current_file_dir + "/images/nested/sample_grey.png")
         img_color_jpg = image.Image(current_file_dir + "/images/sample.jpg","JPG")
         expected = [img_gray_auto_png, img_color_jpg, None]
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected), expected)
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, image.Image), expected)
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, image.Image, ignore_cast_failure=True), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected, image.Image), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected, image.Image, ignore_cast_failure=True), expected)
         # test str list
         expected = ['a', 'b', 'c', None]
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected), expected)
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, str), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected, str), expected)
 
         # test array list
         expected = [array.array('d', range(5)), array.array('d', range(5)), None]
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected), expected)
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, array.array), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected), expected)
+        self.assert_equal_with_lambda_check(_gl_vec(expected, array.array), expected)
         expected = [[float(i) for i in range(5)], range(5), None]
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected), [array.array('d', range(5)),
-                                                                      array.array('d', range(5)), None])
+        self.assert_equal_with_lambda_check(_gl_vec(expected), [array.array('d', range(5)), array.array('d', range(5)), None])
 
         # test int array
         expected = array.array('d', range(5))
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected), range(5))
+        self.assert_equal_with_lambda_check(_gl_vec(expected), range(5))
 
         expected = [1, 1.0, '1', [1., 1., 1.], ['a', 'b', 'c'], {}, {'a': 1}, None]
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, int, ignore_cast_failure=True), [1, 1, None])
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, float, ignore_cast_failure=True), [1.0, 1.0, None])
-        # Anything can be cast to a string
-        # self.assert_equal_with_lambda_check(_tr_flex_list(expected, str, ignore_cast_failure=True), ['1', '1', None])
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, array.array, ignore_cast_failure=True), [array.array('d', [1., 1., 1.]), None])
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, list, ignore_cast_failure=True), [[1., 1., 1.], ['a', 'b', 'c'], None])
-        self.assert_equal_with_lambda_check(_tr_flex_list(expected, dict, ignore_cast_failure=True), [{}, {'a': 1}, None])
+        self.assert_equal_with_lambda_check(_gl_vec(expected, int, ignore_cast_failure=True), [1, None])
+        self.assert_equal_with_lambda_check(_gl_vec(expected, float, ignore_cast_failure=True), [1.0, None])
+        self.assert_equal_with_lambda_check(_gl_vec(expected, str, ignore_cast_failure=True), ['1', None])
+        self.assert_equal_with_lambda_check(_gl_vec(expected, array.array, ignore_cast_failure=True), [array.array('d', [1., 1., 1.]), None])
+        self.assert_equal_with_lambda_check(_gl_vec(expected, list, ignore_cast_failure=True), [[1., 1., 1.], ['a', 'b', 'c'], None])
+        self.assert_equal_with_lambda_check(_gl_vec(expected, dict, ignore_cast_failure=True), [{}, {'a': 1}, None])
 
     def test_infer_list_type(self):
         self.assertEquals(infer_type_of_list([image.Image(current_file_dir + "/images/nested/sample_grey.png"), image.Image(current_file_dir + "/images/sample.jpg","JPG"), image.Image(current_file_dir + "/images/sample.png")
@@ -458,8 +199,7 @@ class FlexibleTypeTest(unittest.TestCase):
         self.assertEquals(infer_type_of_list([0, 1, 2.0]), float)
         self.assertEquals(infer_type_of_list(['foo', u'bar']), str)
         self.assertEquals(infer_type_of_list([array.array('d', [1, 2, 3]), array.array('d', [1, 2, 3])]), array.array)
-        self.assertEquals(infer_type_of_list([[], [1.0, 2.0, 3.0], array.array('d', [1, 2, 3])]), array.array)
-        self.assertEquals(infer_type_of_list([[], [1, 2, 3], array.array('d', [1, 2, 3])]), array.array)
+        self.assertEquals(infer_type_of_list([[], [1, 2, 3], array.array('d', [1, 2, 3])]), list)
         self.assertEquals(infer_type_of_list([{'a': 1}, {'b': 2}]), dict)
 
     def test_datetime_lambda(self):

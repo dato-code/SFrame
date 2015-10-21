@@ -11,13 +11,13 @@ from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement as inc
 
 #### flexible_type utils ####
-from .cy_flexible_type cimport flex_type_enum_from_pytype
+from .cy_flexible_type cimport pytype_to_flex_type_enum
 from .cy_flexible_type cimport pytype_from_flex_type_enum
 from .cy_flexible_type cimport flexible_type_from_pyobject
-from .cy_flexible_type cimport flex_list_from_iterable
+from .cy_flexible_type cimport glvec_from_iterable
 from .cy_flexible_type cimport gl_options_map_from_pydict
 from .cy_flexible_type cimport pyobject_from_flexible_type
-from .cy_flexible_type cimport pylist_from_flex_list
+from .cy_flexible_type cimport pylist_from_glvec
 from .cy_flexible_type cimport pydict_from_gl_options_map
 
 #### dataframe utils ####
@@ -25,6 +25,7 @@ from .cy_dataframe cimport gl_dataframe_from_pd
 from .cy_dataframe cimport gl_dataframe_from_dict_of_arrays
 from .cy_dataframe cimport pd_from_gl_dataframe
 from .cy_dataframe cimport is_pandas_dataframe
+
 
 #### sarray ####
 from .cy_sarray cimport create_proxy_wrapper_from_existing_proxy as sarray_proxy
@@ -82,7 +83,7 @@ cdef class UnitySFrameProxy:
     cpdef load_from_csvs(self, string url, object csv_config, object column_type_hints):
         cdef map[string, flex_type_enum] c_column_type_hints
         for key in column_type_hints:
-            c_column_type_hints[key] = flex_type_enum_from_pytype(column_type_hints[key])
+            c_column_type_hints[key] = pytype_to_flex_type_enum(column_type_hints[key])
         cdef gl_options_map csv_options = gl_options_map_from_pydict(csv_config)
         cdef gl_error_map errors
         with nogil:
@@ -122,7 +123,7 @@ cdef class UnitySFrameProxy:
         return create_proxy_wrapper_from_existing_proxy(self._cli, proxy)
 
     cpdef transform(self, fn, t, int seed):
-        cdef flex_type_enum flex_type_en = flex_type_enum_from_pytype(t)
+        cdef flex_type_enum flex_type_en = pytype_to_flex_type_enum(t)
         cdef string lambda_str
         if type(fn) == str:
             lambda_str = fn
@@ -137,7 +138,7 @@ cdef class UnitySFrameProxy:
         return sarray_proxy(self._cli, proxy)
 
     cpdef transform_native(self, closure, t, int seed):
-        cdef flex_type_enum flex_type_en = flex_type_enum_from_pytype(t)
+        cdef flex_type_enum flex_type_en = pytype_to_flex_type_enum(t)
         cl = make_function_closure_info(closure)
         # skip_undefined options is not used for now.
         skip_undefined = 0
@@ -150,7 +151,7 @@ cdef class UnitySFrameProxy:
         cdef vector[flex_type_enum] column_types
         cdef string lambda_str
         for t in py_column_types:
-            column_types.push_back(flex_type_enum_from_pytype(t))
+            column_types.push_back(pytype_to_flex_type_enum(t))
         if type(fn) == str:
             lambda_str = fn
         else:
@@ -212,7 +213,7 @@ cdef class UnitySFrameProxy:
 
     cpdef iterator_get_next(self, size_t length):
         tmp = self.thisptr.iterator_get_next(length)
-        return [pylist_from_flex_list(x) for x in tmp]
+        return [pylist_from_glvec(x) for x in tmp]
 
     cpdef save_as_csv(self, string url, object csv_config):
         cdef gl_options_map csv_options = gl_options_map_from_pydict(csv_config)
@@ -269,7 +270,7 @@ cdef class UnitySFrameProxy:
 
     cpdef pack_columns(self, vector[string] column_names, vector[string] key_names, dtype, fill_na):
         cdef unity_sarray_base_ptr proxy
-        cdef flex_type_enum fl_type = flex_type_enum_from_pytype(dtype)
+        cdef flex_type_enum fl_type = pytype_to_flex_type_enum(dtype)
         cdef flexible_type na_val = flexible_type_from_pyobject(fill_na)
         with nogil:
             proxy = self.thisptr.pack_columns(column_names, key_names, fl_type, na_val)
@@ -279,7 +280,7 @@ cdef class UnitySFrameProxy:
         cdef vector[flex_type_enum] column_types
         cdef bint b_drop_na = drop_na
         for t in new_column_types:
-            column_types.push_back(flex_type_enum_from_pytype(t))
+            column_types.push_back(pytype_to_flex_type_enum(t))
 
         cdef unity_sframe_base_ptr proxy
         with nogil:

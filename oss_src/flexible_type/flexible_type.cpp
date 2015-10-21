@@ -138,13 +138,11 @@ flex_string get_string_visitor::operator()(const flex_dict& vec) const {
   return vec;
  }
 
-void soft_assignment_visitor::operator()(flex_vec& t, const flex_list& u) const {
-  t.resize(u.size());
-  flexible_type ft = flex_float();
 
-  for (size_t i = 0; i < u.size(); ++i) {
-    ft.soft_assign(u[i]);
-    t[i] = ft.get<flex_float>();
+void soft_assignment_visitor::operator()(flex_list& t, const flex_vec& u) const {
+  t.resize(u.size(), flexible_type(flex_type_enum::FLOAT));
+  for (size_t i = 0;i < u.size(); ++i) {
+    t[i] = u[i];
   }
 }
 

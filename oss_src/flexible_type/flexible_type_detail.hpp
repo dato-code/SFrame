@@ -626,14 +626,11 @@ struct soft_assignment_visitor {
   inline FLEX_ALWAYS_INLINE_FLATTEN void operator()(flex_string& t, const U& u) const { t = get_string_visitor()(u); }
   inline FLEX_ALWAYS_INLINE_FLATTEN void operator()(flex_vec& t, const flex_vec& u) const { t = u; }
   inline FLEX_ALWAYS_INLINE_FLATTEN void operator()(flex_list& t, const flex_list& u) const { t = u; }
-  inline FLEX_ALWAYS_INLINE_FLATTEN void operator()(flex_list& t, const flex_vec& u) const { t.assign(u.begin(), u.end()); }
   inline FLEX_ALWAYS_INLINE_FLATTEN void operator()(flex_dict& t, const flex_dict& u) const { t = u; }
   inline FLEX_ALWAYS_INLINE_FLATTEN void operator()(flex_undefined& t, const flex_undefined& u) const { t = u; }
-  inline FLEX_ALWAYS_INLINE_FLATTEN void operator()(flex_float& t, const flex_undefined& u) const { t = NAN; }
   inline FLEX_ALWAYS_INLINE_FLATTEN void operator()(flex_vec& t, const flex_image& u) const { t = get_vec_visitor()(u); }
-
-  // In flexible_type.cpp
-  void operator()(flex_vec& t, const flex_list& u) const;
+  // defined in flexible_type.cpp
+  void operator()(flex_list& t, const flex_vec& u) const;
 };
 
 /**

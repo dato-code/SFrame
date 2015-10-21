@@ -4,1786 +4,503 @@ All rights reserved.
 
 This software may be modified and distributed under the terms
 of the BSD license. See the LICENSE file for details.
-
-################################################################################
-
-There are essentially three tasks that need to be done in flexible_type translation;
-each of these are implemented in this file.
-
-1. Type inference.  This simply determines the type.
-
-2. Type inference while translating.  Potential casts / re-encodings are
-done as needed to ensure a consistent type at the end.
-
-3. Translation, possibly with a predefined type.
-
-################################################################################
-
-Consistent rules for type inference when mixed types or numeric lists are also
-implemented.  There is generally a one-to-one correspondence between some python
-types and each flexible type, with the exception of a numeric list which is
-treated as a vector.  When types are mixed, then the following 5 rules govern
-the resolution:
-
-Rule 1: Integer can be upgraded to a float.
-Rule 2: A numeric list and a vector together make a vector
-Rule 3: None does not affect the type.  I.e. [t1,t2,None, t3] has the same
-        infered type as [t1, t2, t3]
-Rule 4: If a list or vector is present, an empty list does not
-        change the infered type.
-Rule 5: A vector can be upgraded to a list.
-
-(Note -- these rules were not implemented prior to this pull request.)
-
-################################################################################
-
-Type casting -- now, if a type is specified (e.g. as the constructor to an SArray),
-the same inference rules apply as the astype() method.
-
-################################################################################
-
-Examples of type inference when a common type is expected.
-
-The defintions used are:
-
-IntegerValue: int, long, bool, any numpy integer/boolean type.
-FloatValue: float, any numpy floating point type.
-StringValue: str, unicode, any numpy string/unicode type.
-DictValue: dict.
-DatetimeValue: date or datetime.
-AnyValue: Any of the above values.
-FloatSequence: List/tuple/iterable of floats, non-integer array, any numpy float array.
-FloatSequenceWithNAN: Same as above, but contains a NAN.
-FloatSequenceWithNone: Same as above, but contains a None.
-IntegerSequence: List/tuple/iterable of floats, integer array, any numpy integer array.
-IntegerSequenceWithNAN: Same as above, but contains a NAN.
-IntegerSequenceWithNone: Same as above, but contains a None.
-EmptyFloatArray: Empty python / numpy array with float type.
-EmptyIntegerArray: Empty python / numpy array with integer  type.
-EmptyArray: Either of the above.
-EmptySequence: Empty list or tuple.
-BooleanSequence: List/tuple of bools, boolean typed numpy array.
-StringSequence: List/tuple of strings or unicode; numpy array of str/unicode.
-AnySequence: Any of the above.
-
-[IntegerValue]                        --> int
-[IntegerValue, IntegerValue]          --> int
-[IntegerValue, FloatValue]            --> float
-[IntegerValue, nan]                   --> float
-[]                                    --> int
-[None]                                --> int
-[IntegerValue, nan]                   --> float
-[IntegerValue, None, nan]             --> float
-[IntegerValue, None, FloatValue]      --> float
-[IntegerValue, None, FloatValue, nan] --> float
-[StringValue]                         --> str
-[StringValue, StringValue]            --> str
-[StringValue, IntegerValue]           --> NoneType
-[StringValue, FloatValue]             --> NoneType
-[DictValue]                           --> dict
-[DictValue, DictValue]                --> dict
-[AnySequence, AnyValue]               --> NoneType
-[AnySequence, AnyValue, AnySequence]  --> NoneType
-[AnySequence, AnyValue, AnyValue]     --> NoneType
-[DatetimeValue, StringValue]          --> NoneType
-[DatetimeValue, IntegerValue]         --> NoneType
-[DatetimeValue, FloatValue]           --> NoneType
-[EmptySequence]                       --> list
-[IntegerSequence]                     --> array
-[IntegerSequenceWithNone]             --> list
-[IntegerSequenceWithNAN]              --> array
-[FloatSequence]                       --> array
-[FloatSequenceWithNAN]                --> array
-[FloatSequenceWithNone]               --> list
-[EmptyIntegerArray]                   --> array
-[EmptyFloatArray]                     --> array
-[BooleanSequence]                     --> array
-[StringSequence]                      --> list
-[IntegerSequence, FloatSequence]      --> array
-[IntegerSequence, FloatSequence]      --> array
-[EmptySequence, EmptyFloatArray]      --> array
-[EmptySequence, EmptyIntegerArray]    --> array
-[EmptySequence, IntegerSequence]      --> array
-[EmptySequence, FloatSequence]        --> array
-[EmptySequence, EmptyFloatArray]      --> array
-[EmptySequence, EmptyIntegerArray]    --> array
-[EmptySequence, IntegerSequence]      --> array
-[EmptySequence, FloatSequence]        --> array
-[StringSequence, EmptyFloatArray]     --> list
-[StringSequence, EmptyIntegerArray]   --> list
-[StringSequence, IntegerSequence]     --> list
-[StringSequence, FloatSequence]       --> list
-
-(Note, Adding a None in any of these does not change it.)
-
 '''
-
-# Turn off a couple things in the code that we don't need here, for
-# performance reasons.
-
-#!python
-#cython: boundscheck=False cython:
-#cython: always_allow_keywords=False
-
-cimport cython
 from cython.operator cimport dereference as deref
 from cython.operator cimport preincrement as inc
-from libcpp cimport bool as cbool
-from cpython cimport array
-
-from ..data_structures import image
-
-from cpython.ref cimport PyObject, PyTypeObject
-import itertools
-from sframe.util import timezone
-import datetime
-import calendar
-import collections
-import types
-
-from libc.stdint cimport int8_t, uint8_t, int16_t, uint16_t, int32_t, uint32_t, int64_t, uint64_t
-
-ctypedef fused _numeric:
-    int8_t
-    uint8_t
-    int16_t
-    uint16_t
-    int32_t
-    uint32_t
-    int64_t
-    uint64_t
-    double
-    float
-
-ctypedef unsigned char uchar
-ctypedef unsigned int uint
-ctypedef unsigned long ulong
-ctypedef long long longlong
-ctypedef unsigned long long ulonglong
-ctypedef PyObject* object_ptr
-cdef type array_type = array.array
-cdef type datetime_type = datetime.datetime
-
-# For fast checking of, e.g. numpy buffers or the like
-cdef extern from "Python.h":
-    int PyObject_Hash(PyObject*)
-    longlong PyObject_CheckBuffer(object)
-
-cdef extern from "math.h":
-    double NAN
-
-###### Enum stuff
-DEF _NUM_FLEX_TYPES = 9
-
-# Have to explicitly init the cython datetime support at module load.
-# import_datetime()
-
-# A few types that are hard-bound here.
-cdef object _image_type = image.Image
-
-# Get the appropriate type mappings of things
-DEF FT_INT_TYPE       = 0
-DEF FT_FLOAT_TYPE     = 1
-DEF FT_STR_TYPE       = 2
-DEF FT_UNICODE_TYPE   = 3
-DEF FT_LIST_TYPE      = 4
-DEF FT_TUPLE_TYPE     = 5
-DEF FT_DICT_TYPE      = 6
-DEF FT_BUFFER_TYPE    = 7
-DEF FT_ARRAY_TYPE     = 8
-DEF FT_NONE_TYPE      = 9
-DEF FT_DATETIME_TYPE  = 10
-DEF FT_IMAGE_TYPE     = 11
-
-# The robust versions of the previous ones, which perform extra checks
-# and possible casting.  The robust versions of the above are FT_SAFE
-# plus the previous value.
-DEF FT_SAFE = 12
-DEF FT_LARGEST = 2*FT_SAFE
-DEF FT_FAILURE = 2*FT_LARGEST + 1
-
-cdef map[object_ptr, int] _code_by_type_lookup = map[object_ptr, int]()
-
-# Ids in this case are known to be unique
-_code_by_type_lookup[<object_ptr>(types.DictType)]          = FT_DICT_TYPE
-_code_by_type_lookup[<object_ptr>(types.DictProxyType)]     = FT_DICT_TYPE + FT_SAFE
-_code_by_type_lookup[<object_ptr>(types.FloatType)]         = FT_FLOAT_TYPE
-_code_by_type_lookup[<object_ptr>(types.GeneratorType)]     = FT_LIST_TYPE + FT_SAFE
-_code_by_type_lookup[<object_ptr>(types.IntType)]           = FT_INT_TYPE
-_code_by_type_lookup[<object_ptr>(types.BooleanType)]       = FT_INT_TYPE  + FT_SAFE
-_code_by_type_lookup[<object_ptr>(types.ListType)]          = FT_LIST_TYPE
-_code_by_type_lookup[<object_ptr>(types.LongType)]          = FT_INT_TYPE  + FT_SAFE
-_code_by_type_lookup[<object_ptr>(types.NoneType)]          = FT_NONE_TYPE
-_code_by_type_lookup[<object_ptr>(types.StringType)]        = FT_STR_TYPE
-_code_by_type_lookup[<object_ptr>(types.TupleType)]         = FT_TUPLE_TYPE
-_code_by_type_lookup[<object_ptr>(types.UnicodeType)]       = FT_UNICODE_TYPE
-_code_by_type_lookup[<object_ptr>(array_type)]              = FT_ARRAY_TYPE
-_code_by_type_lookup[<object_ptr>(types.XRangeType)]        = FT_LIST_TYPE + FT_SAFE
-_code_by_type_lookup[<object_ptr>(datetime_type)]           = FT_DATETIME_TYPE
-_code_by_type_lookup[<object_ptr>(_image_type)]             = FT_IMAGE_TYPE
-
-
-cdef map[object_ptr, int] _code_by_map_force = map[object_ptr, int]()
-
-_code_by_map_force[<object_ptr>(types.IntType)]    = FT_INT_TYPE       + FT_SAFE
-_code_by_map_force[<object_ptr>(types.LongType)]   = FT_INT_TYPE       + FT_SAFE
-_code_by_map_force[<object_ptr>(types.FloatType)]  = FT_FLOAT_TYPE     + FT_SAFE
-_code_by_map_force[<object_ptr>(types.StringType)] = FT_STR_TYPE       + FT_SAFE
-_code_by_map_force[<object_ptr>(array_type)]       = FT_ARRAY_TYPE     + FT_SAFE
-_code_by_map_force[<object_ptr>(types.ListType)]   = FT_LIST_TYPE      + FT_SAFE
-_code_by_map_force[<object_ptr>(types.DictType)]   = FT_DICT_TYPE      + FT_SAFE
-_code_by_map_force[<object_ptr>(datetime_type)]    = FT_DATETIME_TYPE  + FT_SAFE
-_code_by_map_force[<object_ptr>(types.NoneType)]   = FT_NONE_TYPE
-_code_by_map_force[<object_ptr>(_image_type)]      = FT_IMAGE_TYPE     + FT_SAFE
-
-cdef dict _code_by_name_lookup = {
-    'string'   : FT_STR_TYPE     + FT_SAFE,
-    'string_'  : FT_STR_TYPE     + FT_SAFE,
-    'unicode'  : FT_UNICODE_TYPE,
-    'unicode_' : FT_UNICODE_TYPE,
-    'int'      : FT_INT_TYPE     + FT_SAFE,
-    'int_'     : FT_INT_TYPE     + FT_SAFE,
-    'long'     : FT_INT_TYPE     + FT_SAFE,
-    'long_'    : FT_INT_TYPE     + FT_SAFE,
-    'bool'     : FT_INT_TYPE     + FT_SAFE,
-    'bool_'    : FT_INT_TYPE     + FT_SAFE,
-    'int8'     : FT_INT_TYPE     + FT_SAFE,
-    'int16'    : FT_INT_TYPE     + FT_SAFE,
-    'int32'    : FT_INT_TYPE     + FT_SAFE,
-    'int64'    : FT_INT_TYPE     + FT_SAFE,
-    'int128'   : FT_INT_TYPE     + FT_SAFE,
-    'uint'     : FT_INT_TYPE     + FT_SAFE,
-    'uint8'    : FT_INT_TYPE     + FT_SAFE,
-    'uint16'   : FT_INT_TYPE     + FT_SAFE,
-    'uint32'   : FT_INT_TYPE     + FT_SAFE,
-    'uint64'   : FT_INT_TYPE     + FT_SAFE,
-    'uint128'  : FT_INT_TYPE     + FT_SAFE,
-    'short'    : FT_INT_TYPE     + FT_SAFE,
-    'bool_'    : FT_INT_TYPE     + FT_SAFE,
-    'float'    : FT_FLOAT_TYPE   + FT_SAFE,
-    'double'   : FT_FLOAT_TYPE   + FT_SAFE,
-    'float16'  : FT_FLOAT_TYPE   + FT_SAFE,
-    'float32'  : FT_FLOAT_TYPE   + FT_SAFE,
-    'float64'  : FT_FLOAT_TYPE   + FT_SAFE,
-    'float128' : FT_FLOAT_TYPE   + FT_SAFE,
-    'datetime' : FT_DATETIME_TYPE + FT_SAFE,
-    'date'     : FT_DATETIME_TYPE + FT_SAFE,
-    'time'     : FT_DATETIME_TYPE + FT_SAFE,
-    'ndarray'  : FT_BUFFER_TYPE  # Just go by name on this one since it's not always imported
-}
-
-################################################################################
-# Looking up the translation code
-
-# Secondary one that isn't inlined; adds new types to the map as needed
-cdef int _secondary_get_translation_code(type t, object v = None):
-    cdef int tr_code
-    try:
-        tr_code = _code_by_name_lookup[t.__name__]
-        _code_by_type_lookup[<object_ptr>t] = tr_code
-        return tr_code
-    except KeyError:
-        pass
-
-    if v is None:
-        return FT_FAILURE
-
-    if PyObject_CheckBuffer(v):
-        _code_by_type_lookup[<object_ptr>t] = FT_BUFFER_TYPE
-        return FT_BUFFER_TYPE
-
-    # If it's iterable, then it can be cast to a list.
-    if isinstance(v, collections.Iterable):
-        _code_by_type_lookup[<object_ptr>t] = FT_LIST_TYPE + FT_SAFE
-        return FT_LIST_TYPE + FT_SAFE
-
-    return FT_FAILURE
-
-# Fast lookups for the last
-cdef object_ptr __last_lookup = NULL
-cdef int __last_code = FT_FAILURE
-
-cdef inline int get_translation_code(type t, object v = None):
-    cdef int code = -1
-    cdef object_ptr optr = <object_ptr>t
-
-    global __last_lookup
-    global __last_code
-
-    if __last_lookup == optr:
-        return __last_code
-
-    cdef map[object_ptr,int].iterator it = _code_by_type_lookup.find(optr)
-
-    if it !=  _code_by_type_lookup.end():
-        __last_lookup = optr
-        __last_code = deref(it).second
-        return __last_code
-
-    return _secondary_get_translation_code(t, v)
-
-
-
-################################################################################
-
-cdef map[object_ptr, int] _code_by_forced_type = map[object_ptr, int]()
-
-# These ids are unique
-_code_by_forced_type[<object_ptr>(dict)]           = FT_DICT_TYPE     + FT_SAFE
-_code_by_forced_type[<object_ptr>(list)]           = FT_LIST_TYPE     + FT_SAFE
-_code_by_forced_type[<object_ptr>(types.NoneType)] = FT_NONE_TYPE     + FT_SAFE
-_code_by_forced_type[<object_ptr>(datetime_type)]  = FT_DATETIME_TYPE + FT_SAFE
-_code_by_forced_type[<object_ptr>(array_type)]     = FT_BUFFER_TYPE
-_code_by_forced_type[<object_ptr>(str)]            = FT_STR_TYPE      + FT_SAFE
-
-################################################################################
-# Enum type only.
-
-cdef list _type_lookup_by_type_enum = [None] * (_NUM_FLEX_TYPES)
-_type_lookup_by_type_enum[<int>INTEGER]   = types.IntType
-_type_lookup_by_type_enum[<int>FLOAT]     = types.FloatType
-_type_lookup_by_type_enum[<int>STRING]    = types.StringType
-_type_lookup_by_type_enum[<int>VECTOR]    = array_type
-_type_lookup_by_type_enum[<int>LIST]      = types.ListType
-_type_lookup_by_type_enum[<int>DICT]      = types.DictType
-_type_lookup_by_type_enum[<int>DATETIME]  = datetime_type
-_type_lookup_by_type_enum[<int>UNDEFINED] = types.NoneType
-_type_lookup_by_type_enum[<int>IMAGE]     = _image_type
-
-cdef type pytype_from_flex_type_enum(flex_type_enum e):
-    return _type_lookup_by_type_enum[<int> e]
-
-################################################################################
-# Looking up the translation code to enum type
-
-cdef vector[flex_type_enum] _enum_tr_codes = vector[flex_type_enum](FT_FAILURE + 1)
-
-_enum_tr_codes[FT_INT_TYPE]                = INTEGER
-_enum_tr_codes[FT_FLOAT_TYPE]              = FLOAT
-_enum_tr_codes[FT_STR_TYPE]                = STRING
-_enum_tr_codes[FT_UNICODE_TYPE]            = STRING
-_enum_tr_codes[FT_LIST_TYPE]               = LIST
-_enum_tr_codes[FT_TUPLE_TYPE]              = LIST
-_enum_tr_codes[FT_DICT_TYPE]               = DICT
-_enum_tr_codes[FT_BUFFER_TYPE]             = VECTOR
-_enum_tr_codes[FT_ARRAY_TYPE]              = VECTOR
-_enum_tr_codes[FT_NONE_TYPE]               = UNDEFINED
-_enum_tr_codes[FT_DATETIME_TYPE]           = DATETIME
-_enum_tr_codes[FT_IMAGE_TYPE]              = IMAGE
-_enum_tr_codes[FT_SAFE + FT_INT_TYPE]      = INTEGER
-_enum_tr_codes[FT_SAFE + FT_FLOAT_TYPE]    = FLOAT
-_enum_tr_codes[FT_SAFE + FT_STR_TYPE]      = STRING
-_enum_tr_codes[FT_SAFE + FT_UNICODE_TYPE]  = STRING
-_enum_tr_codes[FT_SAFE + FT_LIST_TYPE]     = LIST
-_enum_tr_codes[FT_SAFE + FT_TUPLE_TYPE]    = LIST
-_enum_tr_codes[FT_SAFE + FT_DICT_TYPE]     = DICT
-_enum_tr_codes[FT_SAFE + FT_BUFFER_TYPE]   = VECTOR
-_enum_tr_codes[FT_SAFE + FT_ARRAY_TYPE]    = VECTOR
-_enum_tr_codes[FT_SAFE + FT_NONE_TYPE]     = UNDEFINED
-_enum_tr_codes[FT_SAFE + FT_DATETIME_TYPE] = DATETIME
-_enum_tr_codes[FT_SAFE + FT_IMAGE_TYPE]    = IMAGE
-_enum_tr_codes[FT_FAILURE]                 = UNDEFINED
-
-cdef inline flex_type_enum flex_type_from_tr_code(int tr_code):
-    return _enum_tr_codes[tr_code]
-
-cdef inline flex_type_enum flex_type_enum_from_pytype(type t) except *:
-    """
-    Given a type, returns the flex_type_enum associated with that type.
-    """
-    return flex_type_from_tr_code(get_translation_code(t))
-
-################################################################################
-# Controlling whether a list element can be part of an implicit
-# translation of the list to a vector
-
-cdef vector[bint] __ft_is_vector_implicit_castable = vector[bint](_NUM_FLEX_TYPES, False)
-
-# A list will be interpreted as a flex_vec only if all the elements are floats or ints.
-__ft_is_vector_implicit_castable[<int>FLOAT]     = True
-__ft_is_vector_implicit_castable[<int>INTEGER]   = True
-__ft_is_vector_implicit_castable[<int>UNDEFINED] = False
-
-cdef inline bint flex_type_is_vector_implicit_castable(flex_type_enum ft_type):
-    return __ft_is_vector_implicit_castable[<int>ft_type]
-
-################################################################################
-
-cdef bint HAS_NUMPY = False
-
-try:
-    import numpy as np
-    HAS_NUMPY = True
-except ImportError:
-    HAS_NUMPY = False
-
-cdef vector[flex_type_enum] _dtype_to_flex_enum_lookup = vector[flex_type_enum](128, UNDEFINED)
-
-cdef __fill_numpy_info():
-    cdef dict __typecodes = np.typecodes
-
-    for c in <str>(__typecodes.get("AllFloat", "")):
-        _dtype_to_flex_enum_lookup[<int>(ord(c))] = FLOAT
-    for c in <str>(__typecodes.get("AllInteger", "")):
-        _dtype_to_flex_enum_lookup[<int>(ord(c))] = INTEGER
-    for c in <str>(__typecodes.get("Character", "") + "SU"):
-        _dtype_to_flex_enum_lookup[<int>(ord(c))] = STRING
-
-cdef type np_ndarray
-if HAS_NUMPY:
-    np_ndarray = np.ndarray
-    __fill_numpy_info()
-
-cdef flex_type_enum flex_type_from_dtype(object dt):
-    cdef flex_type_enum ft_type
-    cdef int dt_code = ord(dt.char)
-
-    if dt_code >= _dtype_to_flex_enum_lookup.size():
-        ft_type = UNDEFINED
-    else:
-        ft_type = _dtype_to_flex_enum_lookup[dt_code]
-
-    # An annoying special case.
-    if ft_type == UNDEFINED and dt == bool:
-        ft_type = INTEGER
-
-    # print "Categorizing %s as type %s" % (str(dt), flex_type_enum_to_name(ft_type))
-    return ft_type
-
-cpdef type pytype_from_dtype(object dt):
-    if not HAS_NUMPY:
-        return object
-
-    assert isinstance(dt, np.dtype)
-
-    cdef flex_type_enum ft_type = flex_type_from_dtype(dt)
-
-    if ft_type == UNDEFINED:
-        return object
-    else:
-        return pytype_from_flex_type_enum(ft_type)
-
-################################################################################
-# Translate from array types
-
-cdef vector[flex_type_enum] _typecode_to_flex_enum_lookup = vector[flex_type_enum](128, UNDEFINED)
-
-# capture the integers -- these are the defined type characters for integers in array.array.
-for c in 'cbBhHiIlL':
-    _typecode_to_flex_enum_lookup[<int>(ord(c))] = INTEGER
-
-# capture the floats
-for c in 'fd':
-    _typecode_to_flex_enum_lookup[<int>(ord(c))] = FLOAT
-
-# Choose the flexible type based on the array typecode from array.array
-cdef flex_type_enum flex_type_from_array_typecode(str type_code) except *:
-    if len(type_code) != 1:
-        raise ValueError("Type '%s' does not appear to be a valid array type code." % type_code)
-
-    cdef int t_code = ord(type_code)
-
-    if t_code >= _typecode_to_flex_enum_lookup.size():
-        ft_type = UNDEFINED
-    else:
-        ft_type = _typecode_to_flex_enum_lookup[t_code]
-
-    if ft_type == UNDEFINED:
-        raise ValueError("Type '%s' does not appear to be a valid array type code." % type_code)
-
-    return ft_type
-
-cpdef type pytype_from_array_typecode(str type_code):
-    return pytype_from_flex_type_enum(flex_type_from_array_typecode(type_code))
-
-################################################################################
-#
-#  Type inference.  Basically, these are all methods to consistently
-#  enforce that numeric lists are to be treated like arrays.
-#
-################################################################################
-
-cdef inline bint _type_is_vector_
-
-ctypedef fused _listlike:
-    list
-    tuple
-    object[:]
-
-cdef int _listlike_can_be_vector(_listlike v, vector[int]* tr_code_buffer = NULL):
-    cdef int tr_code
-    cdef long i
-    cdef long n = len(v)
-
-    if tr_code_buffer != NULL:
-        tr_code_buffer[0].assign(n, -1)
-
-    if n == 0:
-        return False
-
-    cdef type first_type = type(v[0])
-    tr_code = get_translation_code(first_type, v[0])
-
-    if tr_code_buffer != NULL:
-        tr_code_buffer[0][0] = tr_code
-
-    if not flex_type_is_vector_implicit_castable(flex_type_from_tr_code(tr_code)):
-        return False
-
-    cdef type t
-
-    for i in range(1, n):
-        t = type(v[i])
-
-        if t is first_type:
-            if tr_code_buffer != NULL:
-                tr_code_buffer[0][i] = tr_code_buffer[0][0]
-            continue
-
-        tr_code = get_translation_code(type(v[i]), v[i])
-
-        if tr_code_buffer != NULL:
-            tr_code_buffer[0][i] = tr_code
-
-        if not flex_type_is_vector_implicit_castable(flex_type_from_tr_code(tr_code)):
-            return False
-
-    return True
-
-cdef inline bint _flex_list_can_be_vector(const flex_list& v):
-    cdef long i
-    cdef long n = v.size()
-
-    for i in range(n):
-        if not flex_type_is_vector_implicit_castable(v[i].get_type()):
-            return False
-
-    return True
-
-
-cdef _check_list_to_vector_translation(flexible_type& v):
-    """
-    If a numerical list, translates it to a vector.
-    """
-
-    cdef flexible_type alt_v
-
-    if (v.get_type() == LIST
-        and v.get_list().size() != 0
-        and _flex_list_can_be_vector(v.get_list())):
-
-        alt_v = flexible_type(VECTOR)
-        try:
-            alt_v.soft_assign(v)
-        except:
-            assert False, "Cannot convert %s to vector" % (str(pyobject_from_flexible_type(v)))
-
-        swap(alt_v, v)
-
-
-################################################################################
-# Common type resolution utilities
-
-# Codes for inference in finding the common type of a list
-DEF FTI_INTEGER        = 1
-DEF FTI_FLOAT          = 2
-DEF FTI_STRING         = 4
-DEF FTI_VECTOR         = 8
-DEF FTI_LIST           = 16
-DEF FTI_DICT           = 32
-DEF FTI_DATETIME       = 64
-DEF FTI_NONE           = 128
-DEF FTI_IMAGE          = 256
-
-# additional things that are handled specially
-DEF FTI_NUMERIC_LIST   = 512
-DEF FTI_EMPTY_LIST     = 1024
-
-cdef map[size_t, flex_type_enum] _common_type_inference_rules = map[size_t, flex_type_enum]()
-
-# The empty case
-_common_type_inference_rules[0]                = INTEGER
-
-# Standalone types
-_common_type_inference_rules[FTI_INTEGER]      = INTEGER
-_common_type_inference_rules[FTI_FLOAT]        = FLOAT
-_common_type_inference_rules[FTI_STRING]       = STRING
-_common_type_inference_rules[FTI_VECTOR]       = VECTOR
-_common_type_inference_rules[FTI_LIST]         = LIST
-_common_type_inference_rules[FTI_DICT]         = DICT
-_common_type_inference_rules[FTI_DATETIME]     = DATETIME
-_common_type_inference_rules[FTI_NONE]         = INTEGER
-_common_type_inference_rules[FTI_IMAGE]        = IMAGE
-_common_type_inference_rules[FTI_NUMERIC_LIST] = VECTOR
-_common_type_inference_rules[FTI_EMPTY_LIST]   = LIST
-
-# Upgrade rules:
-
-# Rule 1: Integer can be upgraded to a float.
-_common_type_inference_rules[FTI_INTEGER | FTI_FLOAT]  = FLOAT
-
-# Rule 2: A numeric list and a vector together make a vector
-_common_type_inference_rules[FTI_NUMERIC_LIST | FTI_VECTOR] = VECTOR
-
-# Rule 3: None does not affect things.
-cdef map[size_t, flex_type_enum].iterator _it
-_it = _common_type_inference_rules.begin()
-while _it != _common_type_inference_rules.end():
-    _common_type_inference_rules[deref(_it).first | FTI_NONE] = deref(_it).second
-    inc(_it)
-
-# Rule 4: If a list or vector is present, an empty list does not change things.
-cdef size_t _k
-_it = _common_type_inference_rules.begin()
-while _it != _common_type_inference_rules.end():
-    _k = deref(_it).first
-    if (_k & (FTI_VECTOR | FTI_NUMERIC_LIST | FTI_LIST)) != 0:
-        _common_type_inference_rules[_k | FTI_EMPTY_LIST] = deref(_it).second
-    inc(_it)
-
-# Rule 5: A list with any of a vector, numeric list, empty list, etc. makes a list.
-_it = _common_type_inference_rules.begin()
-while _it != _common_type_inference_rules.end():
-    _k = deref(_it).first
-    if (_k & (FTI_VECTOR | FTI_NUMERIC_LIST | FTI_EMPTY_LIST)) != 0:
-        _common_type_inference_rules[_k | FTI_LIST] = LIST
-    inc(_it)
-
-
-################################################################################
-#
-#  Choosing the inference code
-#
-################################################################################
-
-# Choosing it from the translation code
-cdef vector[size_t] _inference_code_from_tr_code = vector[size_t](FT_FAILURE + 1)
-
-_inference_code_from_tr_code[FT_INT_TYPE]                = FTI_INTEGER
-_inference_code_from_tr_code[FT_FLOAT_TYPE]              = FTI_FLOAT
-_inference_code_from_tr_code[FT_STR_TYPE]                = FTI_STRING
-_inference_code_from_tr_code[FT_UNICODE_TYPE]            = FTI_STRING
-_inference_code_from_tr_code[FT_LIST_TYPE]               = 0 # More needed
-_inference_code_from_tr_code[FT_TUPLE_TYPE]              = 0
-_inference_code_from_tr_code[FT_DICT_TYPE]               = FTI_DICT
-_inference_code_from_tr_code[FT_BUFFER_TYPE]             = 0
-_inference_code_from_tr_code[FT_ARRAY_TYPE]              = FTI_VECTOR
-_inference_code_from_tr_code[FT_NONE_TYPE]               = FTI_NONE
-_inference_code_from_tr_code[FT_DATETIME_TYPE]           = FTI_DATETIME
-_inference_code_from_tr_code[FT_IMAGE_TYPE]              = FTI_IMAGE
-_inference_code_from_tr_code[FT_SAFE + FT_INT_TYPE]      = FTI_INTEGER
-_inference_code_from_tr_code[FT_SAFE + FT_FLOAT_TYPE]    = FTI_FLOAT
-_inference_code_from_tr_code[FT_SAFE + FT_STR_TYPE]      = FTI_STRING
-_inference_code_from_tr_code[FT_SAFE + FT_UNICODE_TYPE]  = FTI_STRING
-_inference_code_from_tr_code[FT_SAFE + FT_LIST_TYPE]     = 0
-_inference_code_from_tr_code[FT_SAFE + FT_TUPLE_TYPE]    = 0
-_inference_code_from_tr_code[FT_SAFE + FT_DICT_TYPE]     = FTI_DICT
-_inference_code_from_tr_code[FT_SAFE + FT_BUFFER_TYPE]   = 0
-_inference_code_from_tr_code[FT_SAFE + FT_ARRAY_TYPE]    = FTI_VECTOR
-_inference_code_from_tr_code[FT_SAFE + FT_NONE_TYPE]     = FTI_NONE
-_inference_code_from_tr_code[FT_SAFE + FT_DATETIME_TYPE] = FTI_DATETIME
-_inference_code_from_tr_code[FT_SAFE + FT_IMAGE_TYPE]    = FTI_IMAGE
-_inference_code_from_tr_code[FT_FAILURE]                 = <size_t>(-1)
-
-# Choosing it from the flexible type code
-cdef vector[size_t] _inference_code_from_flex_type_enum = vector[size_t](_NUM_FLEX_TYPES)
-
-_inference_code_from_flex_type_enum[<int>INTEGER]   = FTI_INTEGER
-_inference_code_from_flex_type_enum[<int>FLOAT]     = FTI_FLOAT
-_inference_code_from_flex_type_enum[<int>STRING]    = FTI_STRING
-_inference_code_from_flex_type_enum[<int>LIST]      = 0 # More work needed
-_inference_code_from_flex_type_enum[<int>VECTOR]    = FTI_VECTOR
-_inference_code_from_flex_type_enum[<int>DICT]      = FTI_DICT
-_inference_code_from_flex_type_enum[<int>IMAGE]     = FTI_IMAGE
-_inference_code_from_flex_type_enum[<int>DATETIME]  = FTI_DATETIME
-_inference_code_from_flex_type_enum[<int>UNDEFINED] = FTI_NONE
-
-cdef size_t _choose_inference_code(int tr_code, object v) except -2:
-
-    cdef size_t _infer_code = _inference_code_from_tr_code[tr_code]
-    cdef flex_type_enum ft_type
-    cdef bint is_object_buffer = False
-
-    if _infer_code == (<size_t>(-1)):
-        raise TypeError("Cannot convert type '" + type(v).__name__ + "' into flexible type.")
-
-    if _infer_code != 0:
-        return _infer_code
-
-    # Handle safe casts of tuples and lists.
-    if tr_code == (FT_LIST_TYPE + FT_SAFE) and type(v) is not list:
-        v = list(v)
-        tr_code = FT_LIST_TYPE
-    elif tr_code == (FT_TUPLE_TYPE + FT_SAFE) and type(v) is not tuple:
-        v = tuple(v)
-        tr_code = FT_TUPLE_TYPE
-
-    # resolve the remaining issues
-    if tr_code == FT_LIST_TYPE:
-        if len(<list>v) == 0:
-            return FTI_EMPTY_LIST
-        elif _listlike_can_be_vector(<list>v):
-            return FTI_NUMERIC_LIST
-        else:
-            return FTI_LIST
-    elif tr_code == FT_TUPLE_TYPE:
-        if len(<tuple>v) == 0:
-            return FTI_EMPTY_LIST
-        elif _listlike_can_be_vector(<tuple>v):
-            return FTI_NUMERIC_LIST
-        else:
-            return FTI_LIST
-    elif tr_code == FT_BUFFER_TYPE or (tr_code == FT_BUFFER_TYPE + FT_SAFE):
-        ft_type = _infer_buffer_element_type(v, False, False, &is_object_buffer)
-        if is_object_buffer:
-            if len(v) == 0:
-                return FTI_EMPTY_LIST
-            elif flex_type_is_vector_implicit_castable(ft_type):
-                return FTI_NUMERIC_LIST
-            else:
-                return FTI_LIST
-        else:
-            if flex_type_is_vector_implicit_castable(ft_type):
-                return FTI_VECTOR
-            else:
-                return FTI_LIST
-
-cdef size_t _choose_inference_code_from_flexible_type(flexible_type ft) except -2:
-
-    cdef size_t _infer_code = _inference_code_from_flex_type_enum[<int>ft.get_type()]
-    cdef flex_type_enum ft_type
-    cdef size_t i
-
-    if _infer_code != 0:
-        return _infer_code
-
-    if ft.get_type() == LIST:
-        if ft.get_list().size() == 0:
-            return FTI_EMPTY_LIST
-        elif _flex_list_can_be_vector(ft.get_list()):
-            return FTI_NUMERIC_LIST
-        else:
-            return FTI_LIST
-    else:
-        assert False
-
-# The logic to determine the available types
-cdef inline flex_type_enum infer_common_type(size_t present_types, bint undefined_on_error = False) except *:
-
-    cdef map[size_t,flex_type_enum].iterator it = _common_type_inference_rules.find(present_types)
-
-    if it == _common_type_inference_rules.end():
-        if undefined_on_error:
-            return UNDEFINED
-        else:
-            types = []
-            if (present_types & FTI_INTEGER) != 0:
-                types.append(flex_type_enum_to_name(INTEGER))
-                present_types -= FTI_INTEGER
-            if (present_types & FTI_FLOAT) != 0:
-                types.append(flex_type_enum_to_name(FLOAT))
-                present_types -= FTI_FLOAT
-            if (present_types & FTI_STRING) != 0:
-                types.append(flex_type_enum_to_name(STRING))
-                present_types -= FTI_STRING
-            if (present_types & FTI_LIST) != 0:
-                types.append(flex_type_enum_to_name(LIST))
-                present_types -= FTI_LIST
-            if (present_types & FTI_VECTOR) != 0:
-                types.append(flex_type_enum_to_name(VECTOR))
-                present_types -= FTI_VECTOR
-            if (present_types & FTI_DICT) != 0:
-                types.append(flex_type_enum_to_name(DICT))
-                present_types -= FTI_DICT
-            if (present_types & FTI_DATETIME) != 0:
-                types.append(flex_type_enum_to_name(DATETIME))
-                present_types -= FTI_DATETIME
-            if (present_types & FTI_NONE) != 0:
-                types.append(flex_type_enum_to_name(UNDEFINED))
-                present_types -= FTI_NONE
-            if (present_types & FTI_IMAGE) != 0:
-                types.append(flex_type_enum_to_name(IMAGE))
-                present_types -= FTI_IMAGE
-            if (present_types & FTI_EMPTY_LIST) != 0:
-                types.append("empty list")
-                present_types -= FTI_EMPTY_LIST
-            if (present_types & FTI_NUMERIC_LIST) != 0:
-                types.append("numeric list")
-                present_types -= FTI_NUMERIC_LIST
-
-            assert present_types == 0
-
-            raise TypeError("A common type cannot be infered from types %s."
-                            % (", ".join(types)))
-    else:
-        return deref(it).second
-
-
-cdef flex_type_enum _infer_common_type_of_listlike(_listlike vl, bint undefined_on_error = False,
-                                                   vector[int]* tr_code_buffer = NULL) except *:
-    """
-    Chooses a common type for a list / tuple / object buffer
-    """
-
-    cdef size_t seen_types = 0, tc
-    cdef long i
-    cdef int tr_code
-
-    if tr_code_buffer != NULL:
-        tr_code_buffer[0].assign(len(vl), -1)
-
-    for i in range(len(vl)):
-        v = vl[i]
-        tr_code = get_translation_code(type(v), v)
-        tc = _choose_inference_code(tr_code, v)
-        # print "v = %s; code = %d " % (str(v), tc)
-
-        seen_types |= tc
-
-        if tr_code_buffer != NULL:
-            tr_code_buffer[0][i] = tr_code
-
-    # print "seen_types = %d" % seen_types
-    return infer_common_type(seen_types, undefined_on_error)
-
-cdef flex_type_enum infer_common_type_of_flex_list(const flex_list& fl, bint undefined_on_error = False):
-    """
-    Chooses a common type for a flex_list.
-    """
-
-    cdef size_t seen_types = 0
-
-    for i in range(fl.size()):
-        seen_types |= _choose_inference_code_from_flexible_type(fl[i])
-
-    return infer_common_type(seen_types, undefined_on_error)
-
-########################################
-# Type of buffers
-
-@cython.boundscheck(False)
-cdef inline bint __try_buffer_numeric_check(object v, _numeric t):
-
-    cdef _numeric[:] buf
-
-    try:
-        buf = v
-        return True
-    except:
-        return False
-
-@cython.boundscheck(False)
-cdef inline flex_type_enum _infer_buffer_element_type(
-    object v,
-    bint expect_common_type = False,
-    bint undefined_on_error = False,
-    bint *is_object_buffer = NULL) except *:
-
-    if is_object_buffer != NULL:
-        is_object_buffer[0] = False
-
-    # Short cut for numpy arrays
-    cdef flex_type_enum ft_type
-    if HAS_NUMPY and type(v) is np_ndarray:
-        ft_type = flex_type_from_dtype(v.dtype)
-        if ft_type != UNDEFINED:
-            return ft_type
-
-    # Most common cases
-    if __try_buffer_numeric_check(v, <double>(0)):   return FLOAT
-    if __try_buffer_numeric_check(v, <int64_t>(0)):  return INTEGER
-
-    # object
-    cdef object[:] object_buffer
-    cdef bint _is_object_buffer = False
-
-    try:
-        object_buffer = v
-        _is_object_buffer = True
-    except:
-        _is_object_buffer = False
-
-    if _is_object_buffer:
-        if is_object_buffer != NULL:
-            is_object_buffer[0] = True
-
-        if expect_common_type:
-            return _infer_common_type_of_listlike(object_buffer, undefined_on_error)
-        else:
-            # See if it has a common type; if so, use that; otherwise return undefined.
-            return _infer_common_type_of_listlike(object_buffer, True)
-
-    # Less common cases
-    if __try_buffer_numeric_check(v, <float>(0)):    return FLOAT
-    if __try_buffer_numeric_check(v, <int8_t>(0)):   return INTEGER
-    if __try_buffer_numeric_check(v, <uint8_t>(0)):  return INTEGER
-    if __try_buffer_numeric_check(v, <int16_t>(0)):  return INTEGER
-    if __try_buffer_numeric_check(v, <uint16_t>(0)): return INTEGER
-    if __try_buffer_numeric_check(v, <int32_t>(0)):  return INTEGER
-    if __try_buffer_numeric_check(v, <uint32_t>(0)): return INTEGER
-    if __try_buffer_numeric_check(v, <int64_t>(0)):  return INTEGER
-    if __try_buffer_numeric_check(v, <uint64_t>(0)): return INTEGER
-
-    # If it's a numpy buffer, then we can cast it to a list
-    if HAS_NUMPY and isinstance(v, np_ndarray):
-        if expect_common_type:
-            return _infer_common_type_of_listlike(list(v), undefined_on_error)
-        else:
-            # See if it has a common type; if so, use that; otherwise return undefined.
-            return _infer_common_type_of_listlike(list(v), True)
-    else:
-        raise TypeError("Buffer type of type '%s' not understood." % (type(v)))
-
-########################################
-# General
-
-cdef flex_type_enum infer_flex_type_of_sequence(object l, bint undefined_on_error = False) except *:
-    """
-    Infer a common type for the elements of a sequence.
-    """
-
-    cdef int tr_code = get_translation_code(type(l), l)
-
-    if tr_code == FT_LIST_TYPE:
-        return _infer_common_type_of_listlike(<list>l, undefined_on_error)
-    elif tr_code == FT_TUPLE_TYPE:
-        return _infer_common_type_of_listlike(<tuple>l, undefined_on_error)
-    elif tr_code == FT_BUFFER_TYPE:
-        return _infer_buffer_element_type(l, True, undefined_on_error)
-    elif tr_code == FT_ARRAY_TYPE:
-        return flex_type_from_array_typecode( (<array.array>l).typecode)
-    elif tr_code == FT_LIST_TYPE + FT_SAFE:
-        if type(l) is list:
-            return _infer_common_type_of_listlike(<list>l, undefined_on_error)
-        else:
-            # Could be optimized
-            return _infer_common_type_of_listlike(list(l), undefined_on_error)
-    elif tr_code == FT_TUPLE_TYPE:
-        if type(l) is tuple:
-            return _infer_common_type_of_listlike(<tuple>l, undefined_on_error)
-        else:
-            # Could be optimized
-            return _infer_common_type_of_listlike(tuple(l), undefined_on_error)
-    elif tr_code == FT_BUFFER_TYPE + FT_SAFE:
-        return _infer_buffer_element_type(l, True, undefined_on_error)
-    elif tr_code == FT_ARRAY_TYPE + FT_SAFE:
-        return flex_type_from_array_typecode( (<array.array>l).typecode)
-    else:
-        if undefined_on_error:
-            return UNDEFINED
-        else:
-            raise TypeError("Cannot interpret type '" + type(l).__name__ + "' as sequence.")
-
-##################################################
-# Interface functions to the world.
-
-cpdef type infer_type_of_list(list l):
-    return pytype_from_flex_type_enum(_infer_common_type_of_listlike(l))
-
-cpdef type infer_type_of_sequence(object l):
-    return pytype_from_flex_type_enum(infer_flex_type_of_sequence(l))
-
-################################################################################
-#
-#   Translation functions list or tuple to flex_list / flex_vec
-#
-################################################################################
-
-@cython.boundscheck(False)
-cdef inline fill_list(flex_list& retl, _listlike v,
-                      flex_type_enum* common_type = NULL,
-                      vector[int]* tr_code_buffer = NULL):
-    """
-    Fills a list.  If common_type is not NULL, then a common type
-    for the list is expected, and the result is stored in common_type[0].
-    If tr_code_buffer is not null, then common types are taken from that
-    """
-
-    cdef long i
-    cdef int tr_code = -1
-    cdef size_t seen_types = 0
-    cdef flexible_type alt_ft
-
-    if len(v) == 0:
-        retl.clear()
-        if common_type != NULL:
-            common_type[0] = infer_common_type(seen_types)
-        return
-
-    retl.resize(len(v))
-    for i in range(len(v)):
-
-        if tr_code_buffer != NULL and tr_code_buffer[0][i] != -1: # Avoid unneeded lookups
-            tr_code = tr_code_buffer[0][i]
-        else:
-            tr_code = get_translation_code(type(v[i]), v[i])
-
-        retl[i] = _ft_translate(v[i], tr_code)
-
-        if common_type != NULL:
-            seen_types |= _choose_inference_code(tr_code, v[i])
-        else:
-            # With no common type expected, translate lists to vectors.
-            _check_list_to_vector_translation(retl[i])
-
-    if(common_type != NULL):
-        common_type[0] = infer_common_type(seen_types)
-
-        for i in range(retl.size()):
-            if retl[i].get_type() != common_type[0]:
-
-                # None/UNDEFINED gets a free pass.
-                if retl[i].get_type() == UNDEFINED:
-                    continue
-
-                alt_ft = flexible_type(common_type[0])
-                swap(alt_ft, retl[i])
-                try:
-                    retl[i].soft_assign(alt_ft)
-                except:
-                    raise TypeError("Error converting type %s to %s."
-                                    % (flex_type_enum_to_name(alt_ft.get_type()),
-                                       flex_type_enum_to_name(retl[i].get_type())))
-
-
-@cython.boundscheck(False)
-cdef inline fill_typed_list(flex_list& retl, _listlike v,
-                            flex_type_enum common_type,
-                            bint ignore_translation_errors):
-    """
-    Fills a list, casting all elements to the common type.  Anything that
-    cannot be losslessly translated is ignored.
-    """
-
-    assert common_type != UNDEFINED
-
-    cdef int tr_code = -1
-    cdef size_t seen_types
-    cdef flexible_type ft
-
-    if len(v) == 0:
-        retl.clear()
-        return
-
-    retl.resize(len(v))
-
-    cdef long i
-    cdef long write_pos = 0
-    cdef bint success
-    cdef bint error_occured
-
-    for i in range(len(v)):
-        ft = _ft_translate(v[i], get_translation_code(type(v[i]), v[i]))
-
-        if ft.get_type() != common_type:
-
-            # UNDEFINED gets a free pass.
-            if ft.get_type() == UNDEFINED:
-                retl[write_pos] = FLEX_UNDEFINED
-                success = True
-            else:
-                retl[write_pos] = flexible_type(common_type)
-
-                try:
-                    retl[write_pos].soft_assign(ft)
-                    success = True
-                except:
-                    success = False
-
-            if not success:
-                if ignore_translation_errors:
-                    continue
-                else:
-                    raise TypeError(
-                        "Type " + flex_type_enum_to_name(ft.get_type())
-                         + " cannot be cast to type " + flex_type_enum_to_name(common_type))
-
-        else:
-            retl[write_pos] = ft
-
-        write_pos += 1
-
-    if write_pos != len(v):
-        retl.resize(write_pos)
-
-@cython.boundscheck(False)
-cdef inline tr_listlike_to_ft(flexible_type& ret, _listlike v, flex_type_enum* common_type = NULL):
-    """
-    Translates list-like objects into a flex_list.  This may be upgraded
-    later on to a vector type if appropriate.
-    """
-
-    ret.set_list(flex_list(len(v)))
-    fill_list(ret.get_list_m(), v, common_type)
-
-
-################################################################################
-# Translate DateTime type
-
-cdef inline tr_datetime_to_ft(flexible_type& ret, v):
-    if(v.year < 1400 or v.year > 10000):
-        raise TypeError('Year is out of valid range: 1400..10000')
-    if(v.tzinfo != None):
-        offset = int(v.tzinfo.utcoffset(v).total_seconds() / TIMEZONE_RESOLUTION_IN_SECONDS) #store timezone offset at the granularity of half an hour.
-        ret.set_date_time((<long long>(calendar.timegm(v.utctimetuple())),offset), v.microsecond)
-    else:
-        ret.set_date_time((<long long>(calendar.timegm(v.utctimetuple())),EMPTY_TIMEZONE), v.microsecond)
-
-
-################################################################################
-# Translate Dictionary type
-
-cdef tr_dict_to_ft(flexible_type& ret, dict d):
-    cdef flex_dict _ft_dict
-    _ft_dict.resize(len(d))
-    cdef long i = 0
-
-    for k, v in d.iteritems():
-        _ft_dict[i].first = flexible_type_from_pyobject(k)
-        _ft_dict[i].second = flexible_type_from_pyobject(v)
-        i += 1
-
-    ret.set_dict(_ft_dict)
-
-################################################################################
-# Translate image type
-
-cdef inline translate_image(flexible_type& ret, object v):
-    """ Convert a python value v to flex image """
-    cdef flex_image ret_i
-
-    ret_i = flex_image(v._image_data, v._height, v._width, v._channels,
-                       v._image_data_size, <char> v._version, v._format_enum)
-
-    ret.set_img(ret_i)
-
-
-################################################################################
-# Buffer translation
-
-@cython.boundscheck(False)
-cdef inline bint __try_buffer_type_vec(flex_vec& retv, object v, _numeric t):
-
-    cdef _numeric[:] buf
-
-    try:
-        buf = v
-    except:
-        return False
-
-    cdef long i
-    retv.resize(len(buf))
-    for i in range(len(buf)):
-        retv[i] = <flex_float>(buf[i])
-    return True
-
-@cython.boundscheck(False)
-cdef inline bint _tr_buffer_to_flex_vec(flex_vec& retv, object v):
-    cdef flex_type_enum ft_type
-
-    if HAS_NUMPY and type(v) is np_ndarray:
-        dt = v.dtype
-        if dt == np.bool:
-            v = np.asarray(v, dtype = np.uint8)
-            if not __try_buffer_type_vec(retv, v, <uint8_t>(0)):
-                assert False
-
-        ft_type = flex_type_from_dtype(dt)
-
-        if ft_type != INTEGER and ft_type != FLOAT:
-            return False
-
-    if __try_buffer_type_vec(retv, v, <double>(0)):   return True
-    if __try_buffer_type_vec(retv, v, <int64_t>(0)):  return True
-    if __try_buffer_type_vec(retv, v, <float>(0)):    return True
-    if __try_buffer_type_vec(retv, v, <int8_t>(0)):   return True
-    if __try_buffer_type_vec(retv, v, <uint8_t>(0)):  return True
-    if __try_buffer_type_vec(retv, v, <int16_t>(0)):  return True
-    if __try_buffer_type_vec(retv, v, <uint16_t>(0)): return True
-    if __try_buffer_type_vec(retv, v, <int32_t>(0)):  return True
-    if __try_buffer_type_vec(retv, v, <uint32_t>(0)): return True
-    if __try_buffer_type_vec(retv, v, <uint64_t>(0)): return True
-
-    return False
-
-################################################################################
-
-cdef inline tr_buffer_to_ft(flexible_type& ret, object v, flex_type_enum* common_type = NULL):
-
-    cdef flex_vec _ft_vec
-
-    # this handles the common cases.
-    if _tr_buffer_to_flex_vec(_ft_vec, v):
-        ret.set_vec(_ft_vec)
-        if common_type != NULL:
-            common_type[0] = FLOAT
-        return
-
-    # object
-    cdef object[:] object_buffer
-    cdef bint is_object_buffer = False
-
-    try:
-        object_buffer = v
-        is_object_buffer = True
-    except:
-        pass
-
-    if is_object_buffer:
-        tr_listlike_to_ft(ret, object_buffer, common_type)
-        return
-
-    # if it's a numpy array, then do something special
-    if HAS_NUMPY and isinstance(v, np_ndarray):
-        tr_listlike_to_ft(ret, list(v), common_type)
-        return
-
-    # Error if there are no more options.
-    raise TypeError("Could not convert python object with type " + str(type(v)) + " to flexible_type.")
-
-
-################################################################################
-
-cdef flexible_type _ft_translate(object v, int tr_code) except *:
-
-    cdef flexible_type ret
-
-    # These are optimized by the cython compiler into a big switch statement.
-    if tr_code == FT_INT_TYPE:
-        ret.set_int(<long>v)
-        return ret
-    elif tr_code == FT_FLOAT_TYPE:
-        ret.set_double(<double>v)
-        return ret
-    elif tr_code == FT_STR_TYPE:
-        ret.set_string(<str>v)
-        return ret
-    elif tr_code == FT_UNICODE_TYPE:
-        ret.set_string(<str>(v.encode('utf-8')))
-        return ret
-    elif tr_code == FT_LIST_TYPE:
-        tr_listlike_to_ft(ret, <list>v)
-        return ret
-    elif tr_code == FT_TUPLE_TYPE:
-        tr_listlike_to_ft(ret, <tuple>v)
-        return ret
-    elif tr_code == FT_DICT_TYPE:
-        tr_dict_to_ft(ret, <dict>v)
-        return ret
-    elif tr_code == FT_NONE_TYPE:
-        ret = FLEX_UNDEFINED
-        return ret
-    elif tr_code == FT_DATETIME_TYPE:
-        tr_datetime_to_ft(ret, v)
-        return ret
-    elif tr_code == FT_IMAGE_TYPE:
-        translate_image(ret, v)
-        return ret
-    elif tr_code == FT_BUFFER_TYPE or tr_code == FT_ARRAY_TYPE:
-        tr_buffer_to_ft(ret, v)
-        return ret
-
-    # Now, versions of the above with a cast and/or check.
-    elif tr_code == (FT_INT_TYPE + FT_SAFE):
-        ret.set_int(v)
-        return ret
-    elif tr_code == (FT_FLOAT_TYPE + FT_SAFE):
-        ret.set_double(v)
-        return ret
-    elif tr_code == (FT_STR_TYPE + FT_SAFE):
-        if type(v) is str:
-            ret.set_string(<str>v)
-        else:
-            ret.set_string(str(v))
-        return ret
-    elif tr_code == (FT_UNICODE_TYPE + FT_SAFE):
-        if type(v) is unicode:
-            ret.set_string(<str>(v.encode('utf-8')))
-        else:
-            ret.set_string(<str>(unicode(v).encode('utf-8')))
-        return ret
-    elif tr_code == (FT_LIST_TYPE + FT_SAFE):
-        if type(v) is list:
-            tr_listlike_to_ft(ret, <list>(v))
-        else:
-            tr_listlike_to_ft(ret, list(v))
-        return ret
-    elif tr_code == (FT_TUPLE_TYPE + FT_SAFE):
-        if type(v) is tuple:
-            tr_listlike_to_ft(ret, <tuple>(v))
-        else:
-            tr_listlike_to_ft(ret, tuple(v))
-        return ret
-    elif tr_code == (FT_DICT_TYPE + FT_SAFE):
-        if type(v) is dict:
-            tr_dict_to_ft(ret, <dict>(v))
-        else:
-            tr_dict_to_ft(ret, dict(v))
-        return ret
-    elif tr_code == (FT_BUFFER_TYPE + FT_SAFE) or tr_code == (FT_ARRAY_TYPE + FT_SAFE):
-        tr_buffer_to_ft(ret, v)
-        return ret
-    elif tr_code == (FT_NONE_TYPE + FT_SAFE):
-        # Here for forced type conversion semantics
-        ret = FLEX_UNDEFINED
-        return ret
-    elif tr_code == (FT_DATETIME_TYPE + FT_SAFE):
-        tr_datetime_to_ft(ret, datetime(v))
-        return ret
-    elif tr_code == (FT_IMAGE_TYPE + FT_SAFE):
-        if type(v) != _image_type:
-            raise TypeError("Cannot interpret type '" + str(type(v)) + "' as graphlab.Image type.")
-        translate_image(ret, v)
-        return ret
-    elif tr_code == FT_FAILURE:
-        raise TypeError("Cannot convert type '" + type(v).__name__ + "' into flexible type.")
-    else:
-        assert False, ("Error: Code " + str(tr_code) + " not accounted for.")
+import array
+import calendar,datetime
+
+from ..util import timezone 
+from datetime import tzinfo
+from datetime import timedelta
 
 cdef flexible_type flexible_type_from_pyobject(object v) except *:
     """
-    Converting python object into flexible_type.  This is the function
-    to use when the translation context is translating a single value.
-
-    Manually perform a list upgrade if needed.  The internal
-    utilities will only alter these types in casting to a common
-    type.  This function, however, is meant to be used when
-    translating values with no context.
+    Converting python object into flexible_type
     """
-
     cdef type t = type(v)
+    cdef flex_vec array_value
+    cdef flex_list recursive_value
+    cdef flex_dict dict_value
+    cdef flex_image image_value
     cdef flexible_type ret
-
-    cdef int tr_code = get_translation_code(t, v)
-    ret = _ft_translate(v, tr_code)
-    _check_list_to_vector_translation(ret)
+    if py_check_flex_int(t):
+        ret.set_int(v)
+    elif py_check_flex_date_time(t):
+         if(v.year < 1400 or v.year > 10000):
+             raise TypeError('Year is out of valid range: 1400..10000')
+         if(v.tzinfo != None):
+             offset = int(v.tzinfo.utcoffset(v).total_seconds() / TIMEZONE_RESOLUTION_IN_SECONDS) # store timezone offset at the granularity of half an hour 
+             ret.set_date_time((<long long>(calendar.timegm(v.utctimetuple())),offset), v.microsecond)
+         else:
+             ret.set_date_time((<long long>(calendar.timegm(v.utctimetuple())),EMPTY_TIMEZONE), v.microsecond)
+    elif py_check_flex_float(t):
+        ret.set_double(v)
+    elif py_check_flex_string(t):
+        if t is unicode:
+            ret.set_string(v.encode('utf-8'))
+        else:
+            ret.set_string(v)
+    elif py_check_flex_vec(t, v):
+        array_value = make_flex_vec(v)
+        ret.set_vec(array_value)
+    elif py_check_flex_list(t):
+        recursive_value.resize(len(v))
+        for i in range(len(v)):
+            recursive_value[i] = flexible_type_from_pyobject(v[i])
+        ret.set_recursive(recursive_value)
+    elif py_check_flex_dict(t):
+        iter = v.iteritems()
+        dict_value.resize(len(v))
+        for i in range(len(v)):
+            key, value = iter.next()
+            dict_value[i].first = flexible_type_from_pyobject(key)
+            dict_value[i].second = flexible_type_from_pyobject(value)
+        ret.set_dict(dict_value)
+    elif py_check_flex_image(t):
+        image_value = make_flex_image(v)
+        ret.set_img(image_value)
+    elif v is None:
+        ret = FLEX_UNDEFINED
+    else:
+        raise TypeError('Cannot convert python object %s of type %s to flexible_type' % (str(v), type(v)))
     return ret
 
 
-################################################################################
-# Translation from various flexible types to the corresponding types.
-
-@cython.boundscheck(False)
-cdef inline array.array[double] pyvec_from_flex_vec(const flex_vec& fv):
-    cdef long n = fv.size()
-    cdef array.array[double] ret = array.array('d')
-    array.extend_buffer(ret, <char*>fv.data(), n)
-    return ret
-
-@cython.boundscheck(False)
-cdef list pylist_from_flex_list(const flex_list& vec):
+cdef flexible_type flexible_type_from_pyobject_with_type_force(object v, type force) except *:
     """
-    Converting vector[flexible_type] to list
+    Converting python object into flexible_type, forcing the object to be
+    interpreted as a particular type. t must be one of the types returned by
+    pytype_from_flex_type_enum(flex_type_enum t).
+    This function will still fail if the object cannot be safely converted.
     """
-    cdef list ret = [None]*vec.size()
-    cdef long i
-
-    for i in range(vec.size()):
-        ret[i] = pyobject_from_flexible_type(vec[i])
-
-    return ret
-
-
-cdef inline dict pydict_from_flex_dict(const flex_dict& fd):
-    cdef long n = fd.size()
-    cdef dict ret = {}
-    cdef long i
-
-    cdef object first, second
-
-    for i in range(n):
-        first = pyobject_from_flexible_type(fd[i].first)
-        second = pyobject_from_flexible_type(fd[i].second)
-        ret[first] = second
-
-    return ret
-
-cdef inline pyimage_from_image(const flex_image& c_image):
-
-    cdef const char* c_image_data = <const char*>c_image.get_image_data()
-
+    cdef type t = type(v)
+    cdef flex_vec array_value
+    cdef flex_list recursive_value
+    cdef flex_dict dict_value
+    cdef flexible_type ret
     from ..data_structures import image
-
-    if c_image.m_image_data_size == 0:
-        image_data =  <bytearray> ()
+    if force is int and py_check_flex_int(t):
+        ret.set_int(v)
+    elif force is datetime.datetime and py_check_flex_date_time(t):
+        if(v.year < 1400 or v.year > 10000):
+            raise TypeError('Year is out of valid range: 1400..10000')
+        if(v.tzinfo != None):
+            offset = int(v.tzinfo.utcoffset(v).total_seconds() / TIMEZONE_RESOLUTION_IN_SECONDS) #store timezone offset at the granularity of half an hour.
+            ret.set_date_time((<long long>(calendar.timegm(v.utctimetuple())),offset), v.microsecond)
+        else:
+            ret.set_date_time((<long long>(calendar.timegm(v.utctimetuple())),EMPTY_TIMEZONE), v.microsecond)
+    elif force is float and py_check_flex_float(t):
+        ret.set_double(v)
+    elif force is str and py_check_flex_string(t):
+        if t is unicode:
+            ret.set_string(v.encode('utf-8'))
+        else:
+            ret.set_string(v)
+    elif force is array.array and py_check_flex_vec(t, v):
+        array_value = make_flex_vec(v)
+        ret.set_vec(array_value)
+    elif force is list and py_check_flex_list(t):
+        recursive_value.resize(len(v))
+        for i in range(len(v)):
+            recursive_value[i] = flexible_type_from_pyobject(v[i])
+        ret.set_recursive(recursive_value)
+    elif force is dict and py_check_flex_dict(t):
+        iter = v.iteritems()
+        dict_value.resize(len(v))
+        for i in range(len(v)):
+            key, value = iter.next()
+            dict_value[i].first = flexible_type_from_pyobject(key)
+            dict_value[i].second = flexible_type_from_pyobject(value)
+        ret.set_dict(dict_value)
+    elif force is image.Image and py_check_flex_image(t):
+        image_value = make_flex_image(v)
+        ret.set_img(image_value)
+    elif force is type(None) and v is None:
+        ret = FLEX_UNDEFINED
     else:
-        assert c_image_data != NULL, "image_data is Null"
-        image_data =  <bytearray> c_image_data[:c_image.m_image_data_size]
-
-    ret = image.Image(_image_data = image_data, _height = c_image.m_height,
-                      _width = c_image.m_width, _channels = c_image.m_channels,
-                      _image_data_size = c_image.m_image_data_size,
-                      _version = <int>c_image.m_version, _format_enum = <int>c_image.m_format)
-
+        raise TypeError('Cannot convert python object %s of type %s to flexible_type' % (str(v), type(v)))
     return ret
 
-cdef inline pydatetime_from_flex_datetime(const pflex_date_time& dt, int us):
-    utc = datetime.datetime(1970,1,1) + datetime.timedelta(seconds=dt.first, microseconds=us)
-    if dt.second != EMPTY_TIMEZONE:
-        to_zone = timezone.GMT(dt.second * TIMEZONE_RESOLUTION_IN_HOURS)
-        utc = utc.replace(tzinfo=timezone.GMT(0))
-        return utc.astimezone(to_zone)
-    else:
-        return utc
-
-
-########################################
-
-
-cdef pyobject_from_flexible_type(const flexible_type& v):
+cdef pyobject_from_flexible_type(flexible_type& v):
     """
-    Convert a flexible_type to the python object.
+    Converting flexible_type into python object
     """
-
-    cdef flex_type_enum f_type = v.get_type()
-
-    if f_type == INTEGER:
+    cdef type t = pytype_from_flex_type_enum(<flex_type_enum>v.get_type())
+    cdef vector[double] array_value
+    cdef vector[flexible_type] recursive_value
+    cdef vector[pair[flexible_type, flexible_type]] dict_value
+    cdef pair[flexible_type, flexible_type] key_value_pair
+    if py_check_flex_int(t):
         return v.get_int()
-    elif f_type == FLOAT:
+    elif py_check_flex_date_time(t):
+        dt = v.get_date_time()
+        us = v.get_microsecond()
+        utc = datetime.datetime(1970,1,1) + datetime.timedelta(seconds=dt.first, microseconds=us)
+        if dt.second != EMPTY_TIMEZONE:
+            to_zone = timezone.GMT(dt.second * TIMEZONE_RESOLUTION_IN_HOURS)
+            utc = utc.replace(tzinfo=timezone.GMT(0))
+            return utc.astimezone(to_zone)
+        else:
+            return utc
+    elif py_check_flex_float(t):
         return v.get_double()
-    elif f_type == STRING:
+    elif py_check_flex_string(t):
         return v.get_string()
-    elif f_type == LIST:
-        return pylist_from_flex_list(v.get_list())
-    elif f_type == VECTOR:
-        return pyvec_from_flex_vec(v.get_vec())
-    elif f_type == DICT:
-        return pydict_from_flex_dict(v.get_dict())
-    elif f_type == IMAGE:
-        return pyimage_from_image(v.get_img())
-    elif f_type == DATETIME:
-        return pydatetime_from_flex_datetime(v.get_date_time(), v.get_microsecond())
-    elif f_type == UNDEFINED:
+    elif py_check_flex_vec(t):
+        x = array.array('d', v.get_vec())
+        return x
+    elif py_check_flex_list(t):
+        recursive_value = v.get_recursive()
+        return [pyobject_from_flexible_type(f) for f in recursive_value]
+    elif py_check_flex_dict(t):
+        ret = {}
+        dict_value = v.get_dict()
+        for i in range(dict_value.size()):
+            key_value_pair = dict_value[i]
+            key = pyobject_from_flexible_type(key_value_pair.first)
+            value = pyobject_from_flexible_type(key_value_pair.second)
+            ret[key]  = value
+        return ret
+    elif py_check_flex_image(t):
+        return make_python_image(v);
+    elif t is type(None):
         return None
     else:
-        assert False
+        raise TypeError('Cannot convert python type %s to flexible_type' % str(t))
 
-
-ctypedef map[string, flexible_type].const_iterator options_map_iter
-
-################################################################################
-# Options map translation
-
-@cython.boundscheck(False)
-cdef dict pydict_from_gl_options_map(const gl_options_map& m):
-    """
-    Converting  map[string, flexible_type] into python dict
-    """
-    cdef dict ret = {}
-
-    cdef options_map_iter it = <options_map_iter>m.begin()
-
-    while it != <options_map_iter>m.end():
-        ret[deref(it).first] = pyobject_from_flexible_type(deref(it).second)
-        inc(it)
-
+cdef gl_vec glvec_from_iterable(object values, type t=None, bint ignore_cast_failure=False) except *:
+    """ Converting python iterable into vector[flexible_type] of specified type t"""
+    assert hasattr(values, '__iter__'), "Cannot convert to vector[flexible_type] from non-iterable type: %s" % str(type(values))
+    cdef gl_vec ret
+    cdef int cnt = 0
+    if t is None:
+        """ return vector has no type constraint """
+        ret.resize(len(values))
+        """Fast path for int[:], double[:] compatible objects"""
+        if is_int_memory_view(values) or is_long_memory_view(values):
+            for v in values:
+                ret[cnt].set_int(<long long>(v))
+                cnt = cnt + 1
+        elif is_float_memory_view(values) or is_double_memory_view(values):
+            for v in values:
+                ret[cnt].set_double(<double>(v))
+                cnt = cnt + 1
+        else:
+            for v in values:
+                ret[cnt] = flexible_type_from_pyobject(v)
+                cnt = cnt + 1
+    else:
+        """ return vector must be type t """
+        if py_check_flex_int(t):
+            fill_int_glvec(values, ret, ignore_cast_failure)
+        elif py_check_flex_date_time(t):
+            fill_date_time_glvec(values, ret, ignore_cast_failure)
+        elif py_check_flex_float(t):
+            fill_double_glvec(values, ret, ignore_cast_failure)
+        elif py_check_flex_string(t):
+            fill_string_glvec(values, ret, ignore_cast_failure)
+        elif py_check_flex_vec(t):
+            fill_array_glvec(values, ret, ignore_cast_failure)
+        elif py_check_flex_list(t):
+            fill_recursive_glvec(values, ret, ignore_cast_failure)
+        elif py_check_flex_dict(t):
+            fill_dict_glvec(values, ret, ignore_cast_failure)
+        elif py_check_flex_image(t):
+            fill_image_glvec(values, ret, ignore_cast_failure)
+        else:
+          raise TypeError('Cannot convert to vector[flexible_type] of type %s' % str(t))
     return ret
 
-@cython.boundscheck(False)
+
+cdef void fill_image_glvec(object values, gl_vec& out, bint ignore_cast_failure) except *:
+    cdef int cnt = 0
+    cdef flexible_type f
+    out.clear()
+    if not ignore_cast_failure:
+        out.resize(len(values))
+        for v in values:
+            if v is None:
+                out[cnt] = FLEX_UNDEFINED
+            else:
+                out[cnt].set_img( make_flex_image((v)))
+            cnt = cnt + 1
+    else:
+        for v in values:
+            if v is None:
+                out.push_back(FLEX_UNDEFINED)
+            elif py_check_flex_image(type(v)):
+                f.set_img( make_flex_image((v)))
+                out.push_back(f)
+
+
+cdef void fill_date_time_glvec(object values, gl_vec& out, bint ignore_cast_failure) except *:
+    cdef int cnt = 0
+    cdef flexible_type f
+    out.clear()
+    if not ignore_cast_failure:
+        out.resize(len(values))
+        for v in values:
+            if v is None:
+                out[cnt] = FLEX_UNDEFINED
+            else:
+                if(v.year < 1400 or v.year > 10000):
+                    raise TypeError('Year is out of valid range: 1400..10000')
+                if(v.tzinfo != None):
+                    offset = int(v.tzinfo.utcoffset(v).total_seconds() / TIMEZONE_RESOLUTION_IN_SECONDS) # store timezone offset at the granularity of half an hour 
+                    out[cnt].set_date_time((<long long>(calendar.timegm(v.utctimetuple())),offset), v.microsecond)
+                else:
+                    out[cnt].set_date_time((<long long>(calendar.timegm(v.utctimetuple())),EMPTY_TIMEZONE), v.microsecond)
+            cnt = cnt + 1
+    else:
+        for v in values:
+            if v is None:
+                out.push_back(FLEX_UNDEFINED)
+            elif py_check_flex_date_time(type(v)):
+                if(v.year < 1400 or v.year > 10000):
+                    raise TypeError('Year is out of valid range: 1400..10000')
+                if(v.tzinfo != None):
+                    offset = int(v.tzinfo.utcoffset(v).total_seconds() / TIMEZONE_RESOLUTION_IN_SECONDS) # store timezone offset at the granularity of half an hour 
+                    f.set_date_time((<long long>(calendar.timegm(v.utctimetuple())),offset), v.microsecond)
+                else:
+                    f.set_date_time((<long long>(calendar.timegm(v.utctimetuple())),EMPTY_TIMEZONE), v.microsecond)
+                out.push_back(f)
+
+cdef void fill_int_glvec(object values, gl_vec& out, bint ignore_cast_failure) except *:
+    cdef int cnt = 0
+    cdef flexible_type f
+    out.clear()
+    if not ignore_cast_failure:
+        out.resize(len(values))
+        for v in values:
+            if v is None:
+                out[cnt] = FLEX_UNDEFINED
+            else:
+                out[cnt].set_int(<long long>(v))
+            cnt = cnt + 1
+    else:
+        for v in values:
+            if v is None:
+                out.push_back(FLEX_UNDEFINED)
+            elif py_check_flex_int(type(v)):
+                f.set_int(<long long>(v))
+                out.push_back(f)
+
+cdef void fill_double_glvec(object values, gl_vec& out, bint ignore_cast_failure) except *:
+    cdef int cnt = 0
+    cdef flexible_type f
+    out.clear()
+    if not ignore_cast_failure:
+        out.resize(len(values))
+        for v in values:
+            if v is None:
+                out[cnt] = FLEX_UNDEFINED
+            else:
+                out[cnt].set_double(<double>(v))
+            cnt = cnt + 1
+    else:
+        for v in values:
+            if v is None:
+                out.push_back(FLEX_UNDEFINED)
+            elif py_check_flex_float(type(v)):
+                f.set_double(<double>(v))
+                out.push_back(f)
+
+cdef void fill_string_glvec(object values, gl_vec& out, bint ignore_cast_failure) except *:
+    cdef int cnt = 0
+    cdef flexible_type f
+    out.clear()
+    if not ignore_cast_failure:
+        out.resize(len(values))
+        for v in values:
+            if v is None:
+                out[cnt] = FLEX_UNDEFINED
+            else:
+                if type(v) is unicode:
+                    out[cnt].set_string(v.encode('utf-8'))
+                else:
+                    out[cnt].set_string(str(v))
+
+            cnt = cnt + 1
+    else:
+        for v in values:
+            if v is None:
+                out.push_back(FLEX_UNDEFINED)
+            elif py_check_flex_string(type(v)):
+                if type(v) is unicode:
+                    f.set_string(v.encode('utf-8'))
+                else:
+                    f.set_string(str(v))
+                out.push_back(f)
+
+cdef void fill_array_glvec(object values, gl_vec& out, bint ignore_cast_failure) except *:
+    cdef int cnt = 0
+    cdef flexible_type f
+    cdef flex_vec empty
+    out.clear()
+    if not ignore_cast_failure:
+        out.resize(len(values))
+        for v in values:
+            if v is None:
+                f = FLEX_UNDEFINED
+            elif v == []:
+            # empty list will be converted to recursive type
+            # make a special exception if we want to fill it in an flex_vec sarray
+                f.set_vec(empty)
+            else:
+                f = flexible_type_from_pyobject(v)
+                assert <char>f.get_type() == <char>VECTOR, 'Cannot convert object %s to array.array' % str(v)
+            out[cnt] = f
+            cnt = cnt + 1
+    else:
+        for v in values:
+            if v is None:
+                out.push_back(FLEX_UNDEFINED)
+            elif v == []:
+            # empty list will be converted to recursive type
+            # make a special exception if we want to fill it in an flex_vec sarray
+                f.set_vec(empty)
+                out.push_back(f)
+            elif py_check_flex_vec(type(v), v):
+                f = flexible_type_from_pyobject(v)
+                if <char>f.get_type() == <char>VECTOR:
+                    out.push_back(f)
+
+cdef flex_list flex_vec_to_flex_list(flex_vec& vec):
+    cdef flex_list ret
+    ret.resize(vec.size())
+    for i in range(len(vec)):
+        ret[i].set_double(vec[i])
+    return ret
+
+cdef void fill_recursive_glvec(object values, gl_vec& out, bint ignore_cast_failure) except *:
+    cdef int cnt = 0
+    cdef flexible_type f
+    out.clear()
+    if not ignore_cast_failure:
+        out.resize(len(values))
+        for v in values:
+            if v is None:
+                f = FLEX_UNDEFINED
+            else:
+                f = flexible_type_from_pyobject_with_type_force(v, list)
+            out[cnt] = f
+            cnt = cnt + 1
+    else:
+        for v in values:
+            if v is None:
+                out.push_back(FLEX_UNDEFINED)
+            elif py_check_flex_list(type(v)):
+                f = flexible_type_from_pyobject_with_type_force(v, list)
+                out.push_back(f)
+
+cdef void fill_dict_glvec(object values, gl_vec& out, bint ignore_cast_failure) except *:
+    cdef int cnt = 0
+    cdef flexible_type f
+    out.clear()
+    if not ignore_cast_failure:
+        out.resize(len(values))
+        for v in values:
+            if v is None:
+                f = FLEX_UNDEFINED
+            else:
+                f = flexible_type_from_pyobject(v)
+                assert <char>f.get_type() == <char>DICT
+            out[cnt] = f
+            cnt = cnt + 1
+    else:
+        for v in values:
+            if v is None:
+                out.push_back(FLEX_UNDEFINED)
+            elif py_check_flex_dict(type(v)):
+                f = flexible_type_from_pyobject(v)
+                if <char>f.get_type() == <char>DICT:
+                    out.push_back(f)
+
 cdef gl_options_map gl_options_map_from_pydict(dict d) except *:
     """
     Converting python dict into map[string, flexible_type]
     """
     cdef gl_options_map ret
-
+    cdef pair[string, flexible_type] entry
     for k,v in d.iteritems():
         ret[str(k)] = flexible_type_from_pyobject(v)
-
     return ret
 
-################################################################################
-
-@cython.boundscheck(False)
-cdef inline bint __try_buffer_typed_list(flex_list& retl, object v, _numeric n,
-                                         flex_type_enum common_type,
-                                         bint numeric_is_integer,
-                                         bint ignore_translation_errors = False) except *:
+cdef pylist_from_glvec(vector[flexible_type]& vec):
     """
-    if common type is UNDEFINED, then it's not typed.  Otherwise, it must be castable to this.
+    Converting vector[flexible_type] to list
     """
+    ret = []
+    for i in range(vec.size()):
+        ret.append(pyobject_from_flexible_type(vec[i]))
+    return ret
 
-    cdef _numeric[:] buf
+cdef pydict_from_gl_options_map(gl_options_map& d):
+    """
+    Converting map[string, flexible_type] to dict
+    """
+    ret = {}
+    it = d.begin()
+    cdef pair[string, flexible_type] entry
+    while (it != d.end()):
+        entry = deref(it)
+        ret[entry.first] = pyobject_from_flexible_type(entry.second)
+        inc(it)
+    return ret
 
-    try:
-        buf = v
-    except:
-        return False
-
-    cdef bint translation_okay = True
-
-    cdef flexible_type src, dest
-
-    # See if we can indeed cast things.
-    if common_type != UNDEFINED:
-
-        src = flexible_type(INTEGER if numeric_is_integer else FLOAT)
-        dest = flexible_type(common_type)
-
-        try:
-            dest.soft_assign(src)
-        except:
-            translation_okay = False
-
-        if not translation_okay:
-            if ignore_translation_errors:
-                retl.assign(len(buf), flexible_type(UNDEFINED))
-                return True
-            else:
-                if numeric_is_integer:
-                    raise TypeError("Integer type cannot be cast to type "
-                                    + flex_type_enum_to_name(common_type))
-                else:
-                    raise TypeError("Float type cannot be cast to type "
-                                    + flex_type_enum_to_name(common_type))
-
-    cdef long i
-
-    retl.resize(len(buf))
-    for i in range(len(buf)):
-        if numeric_is_integer:
-            retl[i].set_int(<flex_int>buf[i])
-        else:
-            retl[i].set_double(<flex_float>buf[i])
-
-    return True
-
-@cython.boundscheck(False)
-cdef inline flex_type_enum __tr_numeric_buffer_to_flex_list(
-    flex_list& retl, object v, flex_type_enum ct, bint ite):
-
-    # Common cases
-    if __try_buffer_typed_list(retl, v, <double>(0), ct, False, ite):  return FLOAT
-    if __try_buffer_typed_list(retl, v, <int64_t>(0), ct, True, ite):  return INTEGER
-    if __try_buffer_typed_list(retl, v, <float>(0),ct, False, ite):    return FLOAT
-    if __try_buffer_typed_list(retl, v, <int8_t>(0), ct, True, ite):   return INTEGER
-    if __try_buffer_typed_list(retl, v, <uint8_t>(0), ct, True, ite):  return INTEGER
-    if __try_buffer_typed_list(retl, v, <int16_t>(0), ct, True, ite):  return INTEGER
-    if __try_buffer_typed_list(retl, v, <uint16_t>(0), ct, True, ite): return INTEGER
-    if __try_buffer_typed_list(retl, v, <int32_t>(0), ct, True, ite):  return INTEGER
-    if __try_buffer_typed_list(retl, v, <uint32_t>(0), ct, True, ite): return INTEGER
-    if __try_buffer_typed_list(retl, v, <int64_t>(0), ct, True, ite):  return INTEGER
-    if __try_buffer_typed_list(retl, v, <uint64_t>(0), ct, True, ite): return INTEGER
-
-    return UNDEFINED
-
-@cython.boundscheck(False)
-cdef inline flex_type_enum tr_listlike_to_flex_list(
-    flex_list& retl, _listlike v,
-    flex_type_enum common_type = UNDEFINED, bint ignore_translation_errors = False) except *:
-
-    if common_type == UNDEFINED:
-        fill_list(retl, v, &common_type)
-        return common_type
+#/**************************************************************************/
+#/*                                                                        */
+#/*                        Internal Util Functions                         */
+#/*                                                                        */
+#/**************************************************************************/
+cdef flex_vec make_flex_vec(object v) except *:
+    """ Convert a python value v to vector[float] """
+    cdef flex_vec ret
+    if type(v) is list:
+        "list of double can be casted to vector[double] in cython"
+        ret = v
+    elif type(v) is array.array or is_numeric_memory_view(v):
+        ret.resize(len(v))
+        for i in range(0, len(v)):
+            ret[i] = v[i]
     else:
-        fill_typed_list(retl, v, common_type, ignore_translation_errors)
-        return common_type
+        raise TypeError('Cannot convert object %s to vector[double]' % str(v))
+    return ret
 
-
-@cython.boundscheck(False)
-cdef inline flex_type_enum tr_buffer_to_flex_list(
-    flex_list& retl, object v,
-    flex_type_enum common_type = UNDEFINED,
-    bint ignore_translation_errors = False) except *:
-
-    """
-    Translates a buffer object to a common type.  If common_type ==
-    UNDEFINED, then it is not expected to be a common type.
-
-    If a common type is detected, then it is returned.
-
-    """
-
-    # for prettification
-    cdef flex_type_enum ft_type, ft_rec_type
-    cdef bint ite = ignore_translation_errors
-    cdef bint tried_numeric_cases_already
-
-    # If we can accomodate NUMPY type inference, let's do it.
-    if HAS_NUMPY and type(v) is np_ndarray:
-        dt = v.dtype
-        # annoyingly, have to special case this one
-        if dt == bool:
-            v = np.asarray(v, dtype = np.uint8)
-            if not __try_buffer_typed_list(retl, v, <uint8_t>(0), common_type, True, ite):
-                assert False
-            return INTEGER
-
-        ft_type = flex_type_from_dtype(dt)
-
-        # print "HERE; ft_type = %s" % flex_type_enum_to_name(ft_type)
-
-        if ft_type == INTEGER or ft_type == FLOAT:
-            ft_rec_type = __tr_numeric_buffer_to_flex_list(retl, v, common_type, True)
-
-            if ft_rec_type == UNDEFINED:
-                return tr_listlike_to_flex_list(retl, list(v), common_type, ite)
-            else:
-                return ft_rec_type
-        else:
-            common_type = ft_type # Cast to a common type to correctly handle strings
+cdef flex_image make_flex_image(object v) except *:
+    """ Convert a python value v to flex image """
+    cdef flex_image ret
+    from ..data_structures import image
+    if type(v) is image.Image:
+        ret = flex_image(v._image_data, v._height, v._width, v._channels, v._image_data_size,<char> v._version, v._format_enum)
     else:
-        # Try the numeric ones
-        ft_rec_type = __tr_numeric_buffer_to_flex_list(retl, v, common_type, True)
+        raise TypeError('Cannot convert object %s to flex_image ' % str(v))
+    return ret
 
-        if ft_rec_type != UNDEFINED:
-            return ft_rec_type
+cdef make_python_image(flexible_type& v) :
+    cdef type t = pytype_from_flex_type_enum(<flex_type_enum>v.get_type())
+    cdef flex_image c_image = v.get_img()
+    cdef const char* c_image_data = <const char*>c_image.get_image_data()
+    from ..data_structures import image
+    if py_check_flex_image(t):
+        if c_image.m_image_data_size == 0:
+          image_data =  <bytearray> ()
         else:
-            pass # Go on the the object stuff
-
-    # object
-    cdef object[:] object_buffer
-    cdef bint is_object_buffer = False
-
-    try:
-        object_buffer = v
-        is_object_buffer = True
-    except:
-        pass
-
-    if is_object_buffer:
-        return tr_listlike_to_flex_list(retl, object_buffer, common_type, ignore_translation_errors)
-
-    # Numpy array that is not an object array?
-    if HAS_NUMPY and type(v) is np_ndarray:
-        return tr_listlike_to_flex_list(retl, list(v), common_type, ignore_translation_errors)
-
-    # Error if there are no more options.
-    raise TypeError("Could not convert python object with type " + type(v).__name__ + " to flex list.")
-
-@cython.boundscheck(False)
-cdef flex_list common_typed_flex_list_from_iterable(object v, flex_type_enum* common_type) except *:
-    """
-    Converting any iterable into a common typed flex_list.
-    """
-
-    cdef int tr_code = get_translation_code(type(v), v)
-    cdef flex_list ret
-    cdef flex_type_enum ct
-
-    # These are optimized by the cython compiler into a big switch statement.
-    if tr_code == FT_LIST_TYPE:
-        fill_list(ret, <list>v, common_type)
-        return ret
-    elif tr_code == FT_TUPLE_TYPE:
-        fill_list(ret, <tuple>v, common_type)
-        return ret
-    elif tr_code == FT_BUFFER_TYPE or FT_ARRAY_TYPE:
-        ct = tr_buffer_to_flex_list(ret, v, UNDEFINED)
-        if common_type != NULL:
-            common_type[0] = ct
-        return ret
-    elif tr_code == (FT_LIST_TYPE + FT_SAFE):
-        if type(v) is list:
-            fill_list(ret, <list>v, common_type)
-        else:
-            fill_list(ret, list(v), common_type)
-        return ret
-    elif tr_code == (FT_TUPLE_TYPE + FT_SAFE):
-        if type(v) is tuple:
-            fill_list(ret, <tuple>(v), common_type)
-        else:
-            fill_list(ret, tuple(v), common_type)
-        return ret
-    elif tr_code == (FT_BUFFER_TYPE + FT_SAFE) or tr_code == (FT_ARRAY_TYPE + FT_SAFE):
-        ct = tr_buffer_to_flex_list(ret, v, UNDEFINED)
-        if common_type != NULL:
-            common_type[0] = ct
-        return ret
+          assert c_image_data != NULL, "image_data is Null"
+          image_data =  <bytearray> c_image_data[:c_image.m_image_data_size]
+        ret = image.Image( _image_data = image_data, _height = c_image.m_height, _width = c_image.m_width, _channels = c_image.m_channels,
+                           _image_data_size = c_image.m_image_data_size, _version = <int>c_image.m_version, _format_enum = <int>c_image.m_format)
     else:
-        raise TypeError("Cannot convert type '" + type(v).__name__ + "' into flexible list.")
+        raise TypeError("Cannot convert flexible_type to py_image")
+    return ret
 
 
-cdef flex_list flex_list_from_iterable(object v) except *:
-    return common_typed_flex_list_from_iterable(v, NULL)
+### Test utils ###
+def _flexible_type(object v):
+    """ convert to flexible_type and back """
+    return pyobject_from_flexible_type(flexible_type_from_pyobject(v))
 
-@cython.boundscheck(False)
-cdef flex_list flex_list_from_typed_iterable(object v, flex_type_enum common_type,
-                                             bint ignore_cast_failure) except *:
-    """
-    Converting any iterable into a list of a certain type.
-    """
-
-    cdef int tr_code = get_translation_code(type(v), v)
-    cdef flex_list ret
-
-    # These are optimized by the cython compiler into a big switch statement.
-    if tr_code == FT_LIST_TYPE:
-        fill_typed_list(ret, <list>v, common_type, ignore_cast_failure)
-        return ret
-    elif tr_code == FT_TUPLE_TYPE:
-        fill_typed_list(ret, <tuple>v, common_type, ignore_cast_failure)
-        return ret
-    elif tr_code == FT_BUFFER_TYPE or tr_code == FT_ARRAY_TYPE:
-        tr_buffer_to_flex_list(ret, v, common_type, ignore_cast_failure)
-        return ret
-    elif tr_code == (FT_LIST_TYPE + FT_SAFE):
-        if type(v) is list:
-            fill_typed_list(ret, <list>v, common_type, ignore_cast_failure)
-        else:
-            fill_typed_list(ret, list(v), common_type, ignore_cast_failure)
-        return ret
-    elif tr_code == (FT_TUPLE_TYPE + FT_SAFE):
-        if type(v) is tuple:
-            fill_typed_list(ret, <tuple>v, common_type, ignore_cast_failure)
-        else:
-            fill_typed_list(ret, tuple(v), common_type, ignore_cast_failure)
-        return ret
-    elif tr_code == (FT_BUFFER_TYPE + FT_SAFE) or tr_code == (FT_ARRAY_TYPE + FT_SAFE):
-        tr_buffer_to_flex_list(ret, v, common_type, ignore_cast_failure)
-        return ret
-    else:
-        raise TypeError("Cannot convert type '" + type(v).__name__ + "' into flexible list.")
-
-################################################################################
-# Testing utilities
-
-def _translate_through_flexible_type(object p):
-    cdef flexible_type ft = flexible_type_from_pyobject(p)
-    cdef object pt = pyobject_from_flexible_type(ft)
-    return pt
-
-
-def _translate_through_flex_list(object v, type t=None, bint ignore_cast_failure=False):
+def _gl_vec(object v, type t=None, bint ignore_cast_failure=False):
     """ convert to vector[flexible_type] and back """
-
-    if t is None:
-        return pylist_from_flex_list(flex_list_from_iterable(v))
-    else:
-        return pylist_from_flex_list(
-            flex_list_from_typed_iterable(
-                v, flex_type_enum_from_pytype(t), ignore_cast_failure))
-
-
-def _get_inferred_column_type(list v):
-    """
-    Returns the inferred type of a column, or "undefined" if no common type exists.
-    """
-    cdef flex_type_enum ft = _infer_common_type_of_listlike(v, True)
-    cdef flex_type_enum alt_ft = UNDEFINED
-    cdef flex_list vl, alt_vl
-
-    if ft != UNDEFINED:
-        # make sure that the three different methods are consistent
-        vl = flex_list_from_typed_iterable(v, ft, False)
-
-        # make sure that doing it through the common
-        alt_vl = common_typed_flex_list_from_iterable(v, &alt_ft)
-
-        assert alt_ft == ft, (("Infered types differ between methods: "
-                               "infered = %s, constructed with common = %s")
-                              % (flex_type_enum_to_name(ft), flex_type_enum_to_name(alt_ft)))
-
-        return pytype_from_flex_type_enum(ft), pylist_from_flex_list(vl)
-    else:
-        return type(None), None
-
-
-def _all_convertable(type t, list v):
-    """
-    Returns the inferred type of a column, or "undefined" if no common type exists.
-    """
-    try:
-        flex_list_from_typed_iterable(v, flex_type_enum_from_pytype(t), False)
-        return True
-    except TypeError:
-        return False
+    return pylist_from_glvec(glvec_from_iterable(v, t, ignore_cast_failure))
