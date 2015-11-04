@@ -633,7 +633,7 @@ def s3_recursive_delete(s3_path, aws_credentials = {}):
     if s3_path.endswith('/'):
       s3_key_prefix += '/'
     matches = bucket.list(prefix=s3_key_prefix)
-    __logger__.info('Deleteing keys: %s' % [key.name for key in matches])
+    __logger__.info('Deleting keys: %s' % [key.name for key in matches])
     bucket.delete_keys([key.name for key in matches])
 
 def expand_full_path(path):
