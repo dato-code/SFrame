@@ -99,16 +99,6 @@ for name in SPARK_SUPPORT_NAMES.keys():
 if not all(name in BINARY_PATHS for name in SPARK_SUPPORT_NAMES.keys()):
     RDD_SUPPORT = False
 
-def get_spark_integration_jar_path():
-    """
-    The absolute path of the jar file required to enable GraphLab Create's
-    integration with Apache Spark.
-    """
-    if 'RDD_JAR_PATH' not in BINARY_PATHS:
-        raise RuntimeError("Could not find a spark integration jar.  "\
-            "Does your version of GraphLab Create support Spark Integration (is it >= 1.0)?")
-    return BINARY_PATHS['RDD_JAR_PATH']
-
 def __rdd_support_init__(sprk_ctx,graphlab_util_ref):
     global REMOTE_OS
     global RDD_SUPPORT_INITED
@@ -923,7 +913,7 @@ class SFrame(object):
             column_type_hints[i] = str
 
         return column_type_hints
-
+    
     @classmethod
     def _read_csv_impl(cls,
                        url,
@@ -1641,6 +1631,36 @@ class SFrame(object):
                 return g
         else:
             raise ValueError("Invalid value for orient parameter (" + str(orient) + ")")
+    
+    @classmethod
+    def set_spark_integration_jar_path(cls, jar_path):
+        """
+        Set the absolute path of the jar file required to enable GraphLab Create's
+        integration with Apache Spark.
+        """
+        global SFRAME_GRAPHLABUTIL_REF
+        if not isinstance(jar_path, str):
+            raise TypeError("The jar path must be str type")
+        if not os.path.isfile(jar_path):
+            raise RuntimeError("Cannot find the file %s" % jar_path)
+        if not jar_path.endswith(".jar"):
+            raise RuntimeError("The jar path must point to a jar file")
+        if SFRAME_GRAPHLABUTIL_REF is not None:
+            raise RuntimeError("The jar path should be set before calling to_rdd(), from_rdd(), or to_spark_dataframe() methods.")
+
+        BINARY_PATHS['RDD_JAR_PATH'] = jar_path
+
+    @classmethod
+    def get_spark_integration_jar_path(cls):
+        """
+        The absolute path of the jar file required to enable GraphLab Create's
+        integration with Apache Spark.
+        """
+        if 'RDD_JAR_PATH' not in BINARY_PATHS:
+            raise RuntimeError("Could not find a spark integration jar.  "\
+                "Does your version of GraphLab Create support Spark Integration (is it >= 1.0)?")
+        return BINARY_PATHS['RDD_JAR_PATH']
+
 
     @classmethod
     def __get_graphlabutil_reference_on_spark_unity_jar(cls,sc):
@@ -1657,7 +1677,7 @@ class SFrame(object):
         global SFRAME_GRAPHLABUTIL_REF
 
         if SFRAME_GRAPHLABUTIL_REF is None:
-            jar_path = get_spark_integration_jar_path()
+            jar_path = cls.get_spark_integration_jar_path()
             jar_file = sc._jvm.java.io.File(jar_path)
             jar_url = jar_file.toURL()
             url_array = sc._gateway.new_array(sc._jvm.java.net.URL,1)

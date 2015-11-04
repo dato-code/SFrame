@@ -43,7 +43,7 @@ from . import toolkits
 
 from .toolkits.image_analysis import image_analysis
 
-from .data_structures.sframe import load_sframe, get_spark_integration_jar_path
+from .data_structures.sframe import load_sframe
 from .data_structures.DBConnection import connect_odbc, get_libodbc_path, set_libodbc_path
 
 # internal util
