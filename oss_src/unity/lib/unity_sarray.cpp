@@ -41,6 +41,7 @@
 #include <sframe_query_engine/planning/planner.hpp>
 #include <sframe_query_engine/planning/optimization_engine.hpp>
 #include <sframe_query_engine/util/aggregates.hpp>
+#include <sframe/rolling_aggregate.hpp>
 
 namespace graphlab {
 
@@ -2541,6 +2542,26 @@ create_sequential_sarray(ssize_t size, ssize_t start, bool reverse) {
     row_num_column->construct_from_sarray(row_num_sarray);
 
     return row_num_column;
+}
+
+std::shared_ptr<unity_sarray_base> unity_sarray::rolling_apply(
+    const std::string &fn_name,
+    ssize_t start,
+    ssize_t end,
+    size_t min_observations) {
+  log_func_entry();
+  std::shared_ptr<unity_sarray> ret(new unity_sarray());
+
+  auto agg_op = get_builtin_group_aggregator(fn_name);
+
+  auto sarray_ptr = get_underlying_sarray();
+  auto windowed_array = graphlab::rolling_aggregate::rolling_apply(*sarray_ptr,
+      agg_op,
+      start,
+      end,
+      min_observations);
+  ret->construct_from_sarray(windowed_array);
+  return ret;
 }
 
 } // namespace graphlab

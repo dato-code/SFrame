@@ -119,7 +119,6 @@ class group_aggregate_value {
    */
   virtual inline ~group_aggregate_value() { }
 
-protected:
   virtual flex_type_enum set_input_type(flex_type_enum type) {
     return type;
   }

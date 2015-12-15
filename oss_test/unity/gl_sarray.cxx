@@ -441,6 +441,13 @@ class gl_sarray_test: public CxxTest::TestSuite {
       // ret is the array [8,9]
     }
 
+    void test_rolling_apply() {
+      gl_sarray a{0,1,2,3,4,5,6,7,8,9};
+      auto result = a.rolling_apply(std::string("__builtin__avg__"), -3, 0);
+      _assert_sarray_equals(result,{flex_undefined(),
+        flex_undefined(),flex_undefined(),1.5,2.5,3.5,4.5,5.5,6.5,7.5});
+    }
+
   void test_sarray() {
     gl_sarray sa{1,2,3,4,5,6};
 

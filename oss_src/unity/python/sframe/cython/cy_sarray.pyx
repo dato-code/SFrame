@@ -429,3 +429,9 @@ cdef class UnitySArrayProxy:
         with nogil:
             proxy = (self.thisptr.copy_range(start, step, end))
         return create_proxy_wrapper_from_existing_proxy(self._cli, proxy)
+    
+    cpdef rolling_apply(self, string fn_name, ssize_t before, ssize_t after, size_t min_observations):
+        cdef unity_sarray_base_ptr proxy
+        with nogil:
+            proxy = (self.thisptr.rolling_apply(fn_name, before, after, min_observations))
+        return create_proxy_wrapper_from_existing_proxy(self._cli, proxy)

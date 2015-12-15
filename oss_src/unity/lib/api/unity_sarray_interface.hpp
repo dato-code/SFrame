@@ -83,6 +83,7 @@ GENERATE_INTERFACE_AND_PROXY(unity_sarray_base, unity_sarray_proxy,
       (size_t, get_content_identifier, )
       (std::shared_ptr<unity_sarray_base>, copy_range, (size_t)(size_t)(size_t))
       (std::vector<flexible_type>, to_vector, )
+      (std::shared_ptr<unity_sarray_base>, rolling_apply,(const std::string&)(ssize_t)(ssize_t)(size_t))
     )
 } // namespace graphlab
 #endif // GRAPHLAB_UNITY_SARRAY_INTERFACE_HPP
