@@ -3040,7 +3040,7 @@ class SArray(object):
         sf['a'] = self
         return sf.sort('a', ascending)['a']
 
-    def rolling_mean(self, window_start, window_end, min_observations=0):
+    def rolling_mean(self, window_start, window_end, min_observations=None):
         """
         Calculate a new SArray of the mean of different subsets over this
         SArray.
@@ -3063,9 +3063,9 @@ class SArray(object):
         
         min_observations : int 
             Minimum number of non-missing observations in window required to
-            calculate the mean (otherwise result is None). 0 signifies that the
-            entire window must not include a missing value. A negative number
-            throws an error.
+            calculate the mean (otherwise result is None). None signifies that
+            the entire window must not include a missing value. A negative
+            number throws an error.
 
         Returns
         -------
@@ -3137,6 +3137,157 @@ class SArray(object):
         Rows: 5
         [None, None, 1.5, 2.5, 3.5]
         """
+        if min_observations is None:
+            min_observations = (1 << 64) - 1
         if min_observations < 0:
             raise ValueError("min_observations must be a positive integer")
-        return SArray(_proxy=self.__proxy__.rolling_apply("mean", window_start, window_end, min_observations))
+        agg_op = None
+        if self.dtype() is array.array:
+            agg_op = '__builtin__vector__avg__'
+        else:
+            agg_op = '__builtin__avg__'
+        return SArray(_proxy=self.__proxy__.rolling_apply(agg_op, window_start, window_end, min_observations))
+
+    def rolling_sum(self, window_start, window_end, min_observations=None):
+        """
+        Calculate a new SArray of the sum of different subsets over this
+        SArray.
+
+        Also known as a "moving sum" or "running sum". The subset that
+        the sum is calculated over is defined as an inclusive range relative
+        to the position to each value in the SArray, using `window_start` and
+        `window_end`. For a better understanding of this, see the examples
+        below.
+
+        Parameters
+        ----------
+        window_start : int
+            The start of the subset to calculate the sum relative to the
+            current value.
+
+        window_end : int
+            The end of the subset to calculate the sum relative to the current
+            value. Must be greater than `window_start`.
+        
+        min_observations : int 
+            Minimum number of non-missing observations in window required to
+            calculate the sum (otherwise result is None). None signifies that
+            the entire window must not include a missing value. A negative
+            number throws an error.
+
+        Returns
+        -------
+        out : SArray
+
+        Examples
+        --------
+        >>> import pandas
+        >>> sa = SArray([1,2,3,4,5]) 
+        >>> series = pandas.Series([1,2,3,4,5])
+
+        A rolling sum with a window including the previous 2 entries including
+        the current:
+        >>> sa.rolling_sum(-2,0)
+        dtype: int 
+        Rows: 5
+        [None, None, 6, 9, 12]
+
+        Pandas equivalent:
+        >>> pandas.rolling_sum(series, 3)
+        0   NaN
+        1   NaN
+        2     2
+        3     3
+        4     4
+        dtype: float64
+
+        Same rolling sum operation, but 2 minimum observations:
+        >>> sa.rolling_sum(-2,0,min_observations=2)
+        dtype: int 
+        Rows: 5
+        [None, 3, 6, 9, 12]
+
+        Pandas equivalent:
+        >>> pandas.rolling_sum(series, 3, min_periods=2)
+        0    NaN
+        1      3 
+        2      6
+        3      9
+        4     12
+        dtype: float64
+
+        A rolling sum with a size of 3, centered around the current:
+        >>> sa.rolling_sum(-1,1)
+        dtype: int 
+        Rows: 5
+        [None, 6, 9, 12, None]
+
+        Pandas equivalent:
+        >>> pandas.rolling_sum(series, 3, center=True)
+        0   NaN
+        1     6
+        2     9
+        3    12
+        4   NaN
+        dtype: float64
+
+        A rolling sum with a window including the current and the 2 entries
+        following:
+        >>> sa.rolling_sum(0,2)
+        dtype: int
+        Rows: 5
+        [6, 9, 12, None, None]
+
+        A rolling sum with a window including the previous 2 entries NOT
+        including the current:
+        >>> sa.rolling_sum(-2,-1)
+        dtype: int 
+        Rows: 5
+        [None, None, 3, 5, 7]
+        """
+        if min_observations is None:
+            min_observations = (1 << 64) - 1
+        if min_observations < 0:
+            raise ValueError("min_observations must be a positive integer")
+        agg_op = None
+        if self.dtype() is array.array:
+            agg_op = '__builtin__vector__sum__'
+        else:
+            agg_op = '__builtin__sum__'
+        return SArray(_proxy=self.__proxy__.rolling_apply(agg_op, window_start, window_end, min_observations))
+
+    def rolling_max(self, window_start, window_end, min_observations=None):
+        if min_observations is None:
+            min_observations = (1 << 64) - 1
+        if min_observations < 0:
+            raise ValueError("min_observations must be a positive integer")
+        agg_op = '__builtin__max__'
+        return SArray(_proxy=self.__proxy__.rolling_apply(agg_op, window_start, window_end, min_observations))
+
+    def rolling_min(self, window_start, window_end, min_observations=None):
+        if min_observations is None:
+            min_observations = (1 << 64) - 1
+        if min_observations < 0:
+            raise ValueError("min_observations must be a positive integer")
+        agg_op = '__builtin__min__'
+        return SArray(_proxy=self.__proxy__.rolling_apply(agg_op, window_start, window_end, min_observations))
+
+    def rolling_var(self, window_start, window_end, min_observations=None):
+        if min_observations is None:
+            min_observations = (1 << 64) - 1
+        if min_observations < 0:
+            raise ValueError("min_observations must be a positive integer")
+        agg_op = '__builtin__var__'
+        return SArray(_proxy=self.__proxy__.rolling_apply(agg_op, window_start, window_end, min_observations))
+
+    def rolling_stdv(self, window_start, window_end, min_observations=None):
+        if min_observations is None:
+            min_observations = (1 << 64) - 1
+        if min_observations < 0:
+            raise ValueError("min_observations must be a positive integer")
+        agg_op = '__builtin__stdv__'
+        return SArray(_proxy=self.__proxy__.rolling_apply(agg_op, window_start, window_end, min_observations))
+
+    def rolling_count(self, window_start, window_end):
+        agg_op = '__builtin__nonnull__count__'
+        return SArray(_proxy=self.__proxy__.rolling_apply(agg_op, window_start, window_end, 0))

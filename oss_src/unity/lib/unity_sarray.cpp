@@ -2552,9 +2552,11 @@ std::shared_ptr<unity_sarray_base> unity_sarray::rolling_apply(
   log_func_entry();
   std::shared_ptr<unity_sarray> ret(new unity_sarray());
 
+  auto agg_op = get_builtin_group_aggregator(fn_name);
+
   auto sarray_ptr = get_underlying_sarray();
   auto windowed_array = graphlab::rolling_aggregate::rolling_apply(*sarray_ptr,
-      fn_name,
+      agg_op,
       start,
       end,
       min_observations);

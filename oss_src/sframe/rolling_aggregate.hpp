@@ -3,16 +3,19 @@
 
 #include <flexible_type/flexible_type.hpp>
 #include <sframe/sarray.hpp>
+#include <sframe/groupby_aggregate_operators.hpp>
 
 namespace graphlab {
 namespace rolling_aggregate {
+
+typedef boost::circular_buffer<flexible_type>::iterator circ_buffer_iterator_t;
+typedef std::function<flexible_type(circ_buffer_iterator_t,circ_buffer_iterator_t)> full_window_fn_type_t;
 
 /**
  * Apply an aggregate function over a moving window.
  * 
  * \param input The input SArray (expects to be materialized)
- * \param fn_name The string representation of the aggregation function to use.
- * The mapping is kept in the `agg_string_to_fn` function.
+ * \param agg_op The aggregator. These classes are the same as used by groupby.
  * \param window_start The start of the moving window relative to the current
  * value being calculated, inclusive. For example, 2 values behind the current
  * would be -2, and 0 indicates that the start of the window is the current
@@ -23,8 +26,8 @@ namespace rolling_aggregate {
  * and 2 would indicate that the window ends at 2 data values after the
  * current.
  * \param min_observations The minimum allowed number of non-NULL values in the
- * moving window for the emitted value to be non-NULL. 0 indicates that all
- * values must be non-NULL.
+ * moving window for the emitted value to be non-NULL. size_t(-1) indicates
+ * that all values must be non-NULL.
  *
  * Returns an SArray of the same length as the input, with a type that matches
  * the type output by the aggregation function.
@@ -35,37 +38,26 @@ namespace rolling_aggregate {
  *  - The given function name corresponds to a function that will not operate
  *  on the data type of the input SArray.
  *  - The aggregation function returns more than one non-NULL types.
- *  
- * 
  */
 std::shared_ptr<sarray<flexible_type>> rolling_apply(
     const sarray<flexible_type> &input,
-    std::string fn_name, 
+    std::shared_ptr<group_aggregate_value> agg_op,
     ssize_t window_start,
     ssize_t window_end,
-    size_t min_observations=0);
+    size_t min_observations);
 
 
 /// Aggregate functions
 template<typename Iterator>
-flexible_type mean(Iterator first, Iterator last) {
-  flexible_type f = 0.0f;
-  size_t count = 0;
-  size_t non_null_count = 0;
-  for(; first != last; ++first, ++count) {
-    if(first->get_type() == flex_type_enum::UNDEFINED)
-      continue;
-    f += *first;
-    ++non_null_count;
+flexible_type full_window_aggregate(std::shared_ptr<group_aggregate_value> agg_op,
+    Iterator first, Iterator last) {
+  auto agg = agg_op->new_instance();
+  for(; first != last; ++first) {
+    agg->add_element_simple(*first);
   }
 
-  if(!count)
-    return flex_undefined();
-
-  //TODO: Should I divide at end, or each iteration?
-  return f / float(non_null_count);
+  return agg->emit();
 }
-
 
 /**
  * Scans the current window to check for the number of non-NULL values.
@@ -79,7 +71,7 @@ bool has_min_observations(size_t min_observations,
                           Iterator last) {
   size_t observations = 0;
   size_t count = 0;
-  bool need_all = (min_observations == 0);
+  bool need_all = (min_observations == size_t(-1));
   for(; first != last; ++first, ++count) {
     if(first->get_type() != flex_type_enum::UNDEFINED) {
       ++observations;
@@ -93,26 +85,6 @@ bool has_min_observations(size_t min_observations,
     return (observations == count);
 
   return false;
-}
-
-/**
- * Given the string name of the aggregation function, returns the corresponding
- * function.
- * 
- * Throws exception if:
- *  - The name does not correspond to an implemented function.
- */
-template <typename Iterator>
-std::function<flexible_type(Iterator,Iterator)> agg_string_to_fn(
-    const std::string &fn_name) {
-  if(fn_name == "mean") {
-    return mean<Iterator>;
-  } else {
-    log_and_throw("Invalid function name: " + fn_name);
-  }
-
-  // Should never get here
-  return nullptr;
 }
 
 } // namespace rolling_aggregate

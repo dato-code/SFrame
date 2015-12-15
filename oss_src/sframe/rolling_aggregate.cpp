@@ -24,37 +24,38 @@ size_t calculate_window_size(ssize_t start, ssize_t end) {
 
 std::shared_ptr<sarray<flexible_type>> rolling_apply(
     const sarray<flexible_type> &input,
-    std::string fn_name,
+    std::shared_ptr<group_aggregate_value> agg_op,
     ssize_t window_start,
     ssize_t window_end,
     size_t min_observations) {
   /// Sanity checks
-  if(window_start >= window_end) {
-    log_and_throw("Start of window cannot be >= end of window.");
+  if(window_start > window_end) {
+    log_and_throw("Start of window cannot be > end of window.");
   }
+
+  // Check type is supported by aggregate operator
+  if(!agg_op->support_type(input.get_type())) {
+    log_and_throw(agg_op->name() + std::string(" does not support input type."));
+  }
+
+  agg_op->set_input_type(input.get_type());
 
   // Get window size given inclusive range
   size_t total_window_size = calculate_window_size(window_start, window_end);
   if(total_window_size > uint32_t(-1)) {
-    //TODO: Move this to a runtime configurable constant
-    log_and_throw("Excessive window size. Hardcoded limit is: " +
+    log_and_throw("Window size cannot be larger than " +
         std::to_string(uint32_t(-1)));
   }
 
+  bool check_num_observations = (min_observations != 0);
+
   if(min_observations > total_window_size) {
+    if(min_observations != size_t(-1))
+      logprogress_stream << "Warning: min_observations (" << min_observations <<
+        ") larger than window size (" << total_window_size <<
+        "). Continuing with min_observations=" << total_window_size << "." <<
+        std::endl;
     min_observations = total_window_size;
-  }
-
-  /// Convert function name to actual function
-  boost::algorithm::to_lower(fn_name);
-  auto fn = agg_string_to_fn<boost::circular_buffer<flexible_type>::iterator>(fn_name);
-
-  // Logic to constrain the right types to each function For now, we'll just
-  // take numeric for all functions, but it can use fn_name to multiplex should
-  // there be an aggregation function that works on non-numeric types
-  if(input.get_type() != flex_type_enum::INTEGER &&
-      input.get_type() != flex_type_enum::FLOAT) {
-    log_and_throw("SArray must be numeric type");
   }
 
   auto num_segments = thread::cpu_count();
@@ -119,11 +120,12 @@ std::shared_ptr<sarray<flexible_type>> rolling_apply(
     while(logical_pos < logical_end) {
       // First check if we have the minimum non-NULL observations. This is here
       // to remove the burden of checking from every aggregation function.
-      if(!has_min_observations(min_observations,
+      if(check_num_observations &&
+          !has_min_observations(min_observations,
             window_buf.begin(), window_buf.end())) {
         *out_iter = flex_undefined();
       } else {
-        auto result = fn(window_buf.begin(), window_buf.end());
+        auto result = full_window_aggregate(agg_op, window_buf.begin(), window_buf.end());
         // Record the emitted type from the function. We just take the first
         // one that is non-NULL.
         if(fn_returned_types[segment_id] == flex_type_enum::UNDEFINED && 

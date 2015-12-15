@@ -279,7 +279,7 @@ void initialize_globals_from_environment(std::string argv0) {
       set_value_from_string_visitor visitor;
       visitor.new_value = envval;
       if (i.value.apply_visitor(visitor)) {
-        logstream(LOG_EMPH) << "Setting configuration variable " << i.name 
+        logstream(LOG_INFO) << "Setting configuration variable " << i.name 
                             << " to " << visitor.new_value << std::endl;
       } else {
         logstream(LOG_EMPH) << "Cannot set configuration variable " << i.name 

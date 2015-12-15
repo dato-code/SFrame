@@ -220,7 +220,7 @@ package_egg() {
   if [[ $OSTYPE == darwin* ]];then
     EGG_PATH=`ls ${WORKSPACE}/${build_type}/oss_src/unity/python/dist/SFrame-${VERSION_NUMBER}*.whl`
     temp=`echo $EGG_PATH | perl -ne 'print m/(^.*-).*$/'`
-    platform_tag="macosx_10_5_x86_64.macosx_10_6_intel.macosx_10_9_intel.macosx_10_9_x86_64.macosx_10_10_intel.macosx_10_10_x86_64"
+    platform_tag="macosx_10_5_x86_64.macosx_10_6_intel.macosx_10_9_intel.macosx_10_9_x86_64.macosx_10_10_intel.macosx_10_10_x86_64.macosx_10_11_x86_64.macosx_10_11_intel"
     NEW_EGG_PATH=${temp}${platform_tag}".whl"
     mv ${EGG_PATH} ${NEW_EGG_PATH}
     EGG_PATH=${NEW_EGG_PATH}

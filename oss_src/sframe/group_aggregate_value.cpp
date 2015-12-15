@@ -28,6 +28,8 @@ std::shared_ptr<group_aggregate_value> get_builtin_group_aggregator(const std::s
     return std::make_shared<groupby_operators::argmax>();
   } else if (name == "__builtin__count__") {
     return std::make_shared<groupby_operators::count>();
+  } else if (name == "__builtin__nonnull__count__") {
+    return std::make_shared<groupby_operators::non_null_count>();
   } else if (name == "__builtin__avg__") {
     return std::make_shared<groupby_operators::average>();
   } else if (name == "__builtin__vector__avg__"){

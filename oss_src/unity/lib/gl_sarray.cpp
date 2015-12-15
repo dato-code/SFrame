@@ -596,6 +596,13 @@ gl_sarray gl_sarray::subslice(flexible_type start,
   return sarray_subslice(*this, start, stop, step);
 }
 
+gl_sarray gl_sarray::rolling_apply(const std::string &fn_name,
+                                   ssize_t start,
+                                   ssize_t end,
+                                   size_t min_observations) const {
+  return get_proxy()->rolling_apply(fn_name, start, end, min_observations);
+}
+
 std::ostream& operator<<(std::ostream& out, const gl_sarray& other) {
   auto t = other.head(10);
   auto dtype = other.dtype();
@@ -628,6 +635,7 @@ void gl_sarray::ensure_has_sarray_reader() const {
     }
   }
 }
+
 /**************************************************************************/
 /*                                                                        */
 /*                            gl_sarray_range                             */
