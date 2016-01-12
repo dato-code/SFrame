@@ -28,6 +28,8 @@ make_library(unity_core
     image_util.cpp
     ../extensions/additional_sframe_utilities.cpp
     ../extensions/cumulative_aggregates.cpp
+    unity_sarray_builder.cpp
+    unity_sframe_builder.cpp
   REQUIRES
     flexible_type
     pylambda table_printer

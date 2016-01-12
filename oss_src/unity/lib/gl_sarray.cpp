@@ -40,17 +40,12 @@ flex_type_enum infer_type_of_list(const std::vector<flexible_type>& vec) {
       last_type = val.get_type();
     }
   }
-  if (types.size() == 0) return flex_type_enum::FLOAT;
-  else if (types.size() == 1) return *(types.begin());
-  else if (types.size() == 2) {
-    if (types.count(flex_type_enum::INTEGER) && types.count(flex_type_enum::FLOAT)) {
-      return flex_type_enum::FLOAT;
-    }
-    if (types.count(flex_type_enum::LIST) && types.count(flex_type_enum::VECTOR)) {
-      return flex_type_enum::LIST;
-    }
+
+  try {
+    return get_common_type(types);
+  } catch(std::string &e) {
+    throw std::string("Cannot infer Array type. Not all elements of array are the same type.");
   }
-  throw std::string("Cannot infer Array type. Not all elements of array are the same type.");
 }
 
 /**************************************************************************/

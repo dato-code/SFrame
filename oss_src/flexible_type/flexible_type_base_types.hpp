@@ -768,6 +768,27 @@ struct has_direct_conversion_to_flexible_type {
       flex_type_enum::UNDEFINED;
 };
 
+/**
+ * Given a set of types, choose a common type that all types in the set can be
+ * converted to and preserves the most data. Not designed to be passed a set
+ * with UNDEFINED in it.
+ */
+inline flex_type_enum get_common_type(const std::set<flex_type_enum> &types) {
+  if (types.size() == 0) return flex_type_enum::FLOAT;
+  else if (types.size() == 1) return *(types.begin());
+  else if (types.size() == 2) {
+    if (types.count(flex_type_enum::INTEGER) && types.count(flex_type_enum::FLOAT)) {
+      return flex_type_enum::FLOAT;
+    }
+    if (types.count(flex_type_enum::LIST) && types.count(flex_type_enum::VECTOR)) {
+      return flex_type_enum::LIST;
+    }
+  } else {
+    throw std::string("Could not find a common type to convert all values.");
+  }
+
+  return flex_type_enum::UNDEFINED;
+}
 
 } // namespace graphlab
 

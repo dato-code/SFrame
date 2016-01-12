@@ -33,6 +33,8 @@ from .data_structures.sframe import SFrame
 from .data_structures.sarray import SArray
 from .data_structures.sketch import Sketch
 from .data_structures.image import Image
+from .data_structures.sarray_builder import SArrayBuilder
+from .data_structures.sframe_builder import SFrameBuilder
 
 from .data_structures.sgraph import load_sgraph, load_graph
 

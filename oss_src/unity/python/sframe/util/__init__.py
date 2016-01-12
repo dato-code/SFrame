@@ -833,3 +833,42 @@ def get_client_log_location():
 
 def get_server_log_location():
     return get_log_location()
+
+def get_module_from_object(obj):
+    mod_str = obj.__class__.__module__.split('.')[0]
+    return _sys.modules[mod_str]
+
+def infer_dbapi2_types(cursor, mod_info):
+    desc = cursor.description
+    result_set_types = [i[1] for i in desc]
+    dbapi2_to_python = [ # a type code can match more than one, so ordered by
+                         # preference (loop short-circuits when it finds a match
+                        (mod_info['DATETIME'], _datetime.datetime),
+                        (mod_info['ROWID'],int),
+                        (mod_info['NUMBER'],float),
+                       ]
+    ret_types = []
+
+    # Ugly nested loop because the standard only guarantees that a type code
+    # will compare equal to the module-defined types
+    for i in result_set_types:
+        type_found = False
+        for j in dbapi2_to_python:
+            if i is None:
+                break
+            elif i == j[0]:
+                ret_types.append(j[1])
+                type_found = True
+                break 
+        if not type_found:
+            ret_types.append(str)
+
+    return ret_types
+
+def pytype_to_printf(in_type):
+    if in_type == int:
+        return 'd'
+    elif in_type == float:
+        return 'f'
+    else:
+        return 's'
