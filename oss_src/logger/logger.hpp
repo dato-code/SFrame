@@ -410,7 +410,7 @@ class file_logger{
   size_t get_pid() const {
     return reference_pid;
   }
-  
+
   /// Returns the current logger file.
   std::string get_log_file(void) {
     return log_file;

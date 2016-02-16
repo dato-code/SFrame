@@ -376,8 +376,8 @@ std::shared_ptr<unity_sarray_base> unity_sarray::head(size_t nrows) {
       }
       return false;
     };
-    query_eval::planner().materialize(this->get_planner_node(),
-                                      callback, 
+      query_eval::planner().materialize(this->get_planner_node(),
+                                        callback,
                                       1 /* process in as 1 segment */);
   }
   sa_head->close();
@@ -805,86 +805,86 @@ flexible_type unity_sarray::min() {
 flexible_type unity_sarray::sum() {
   log_func_entry();
 
-  flex_type_enum cur_type = dtype();
-  if(cur_type == flex_type_enum::INTEGER ||
-     cur_type == flex_type_enum::FLOAT) {
+    flex_type_enum cur_type = dtype();
+    if(cur_type == flex_type_enum::INTEGER ||
+       cur_type == flex_type_enum::FLOAT) {
 
-    flexible_type start_val;
-    if(cur_type == flex_type_enum::INTEGER) {
-      start_val = flex_int(0);
-    } else {
-      start_val = flex_float(0);
-    }
+      flexible_type start_val;
+      if(cur_type == flex_type_enum::INTEGER) {
+        start_val = flex_int(0);
+      } else {
+        start_val = flex_float(0);
+      }
 
-    auto reductionfn =
-        [](const flexible_type& f, flexible_type& sum)->void {
-          if (f.get_type() != flex_type_enum::UNDEFINED) {
-            sum += f;
-          }
-        };
+      auto reductionfn =
+          [](const flexible_type& f, flexible_type& sum)->void {
+            if (f.get_type() != flex_type_enum::UNDEFINED) {
+              sum += f;
+            }
+          };
 
-    flexible_type sum_val =
+      flexible_type sum_val =
         query_eval::reduce<flexible_type>(m_planner_node, reductionfn, 
                                           reductionfn, start_val);
 
-    return sum_val;
-  } else if (cur_type == flex_type_enum::VECTOR) {
+      return sum_val;
+    } else if (cur_type == flex_type_enum::VECTOR) {
 
-    bool failure = false;
-    auto reductionfn =
-        [&failure](const flexible_type& f, std::pair<bool, flexible_type>& sum)->bool {
-          if (f.get_type() != flex_type_enum::UNDEFINED) {
+      bool failure = false;
+      auto reductionfn =
+          [&failure](const flexible_type& f, std::pair<bool, flexible_type>& sum)->bool {
+                      if (f.get_type() != flex_type_enum::UNDEFINED) {
+                        if (sum.first == false) {
+                          // initial val
+                          sum.first = true;
+                          sum.second = f;
+                        } else if (sum.second.size() == f.size()) {
+                          // accumulation
+                          sum.second += f;
+                        } else {
+                          // length mismatch. fail
+                          failure = true;
+                          return false;
+                        }
+                      }
+                      return true;
+                    };
+
+      auto combinefn =
+          [&failure](const std::pair<bool, flexible_type>& f, std::pair<bool, flexible_type>& sum)->bool {
             if (sum.first == false) {
-              // initial val
-              sum.first = true;
-              sum.second = f;
-            } else if (sum.second.size() == f.size()) {
+              // initial state
+              sum = f;
+            } else if (f.first == false) {
+              // there is no f to add.
+              return true;
+            } else if (sum.second.size() == f.second.size()) {
               // accumulation
-              sum.second += f;
+              sum.second += f.second;
             } else {
-              // length mismatch. fail
+              // length mismatch
               failure = true;
               return false;
             }
-          }
-          return true;
-        };
-
-    auto combinefn =
-        [&failure](const std::pair<bool, flexible_type>& f, std::pair<bool, flexible_type>& sum)->bool {
-          if (sum.first == false) {
-            // initial state
-            sum = f;
-          } else if (f.first == false) {
-            // there is no f to add.
             return true;
-          } else if (sum.second.size() == f.second.size()) {
-            // accumulation
-            sum.second += f.second;
-          } else {
-            // length mismatch
-            failure = true;
-            return false;
-          }
-          return true;
-        };
+          };
 
-    std::pair<bool, flexible_type> start_val{false, flex_vec()};
-    std::pair<bool, flexible_type> sum_val =
+      std::pair<bool, flexible_type> start_val{false, flex_vec()};
+      std::pair<bool, flexible_type> sum_val =
         query_eval::reduce<std::pair<bool, flexible_type> >(m_planner_node, reductionfn,
                                                             combinefn , start_val);
 
-    // failure indicates there is a missing value, or there is vector length
-    // mismatch
-    if (failure) {
-      log_and_throw("Cannot perform sum over vectors of variable length.");
+      // failure indicates there is a missing value, or there is vector length
+      // mismatch
+      if (failure) {
+        log_and_throw("Cannot perform sum over vectors of variable length.");
+      }
+
+      return sum_val.second;
+
+    } else {
+      log_and_throw("Cannot perform on non-numeric types!");
     }
-
-    return sum_val.second;
-
-  } else {
-    log_and_throw("Cannot perform on non-numeric types!");
-  }
 }
 
 flexible_type unity_sarray::mean() {

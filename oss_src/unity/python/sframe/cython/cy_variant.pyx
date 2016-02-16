@@ -104,6 +104,8 @@ cdef bint internal_classes_set = False
 cdef object sframe_class = None
 cdef object sarray_class = None
 cdef object sgraph_class = None
+cdef object gframe_class = None
+
 cdef object build_native_function_call = None
 
 # Load all the internal classes
@@ -120,6 +122,10 @@ cdef import_internal_classes():
     global sgraph_class
     from ..data_structures.sgraph import SGraph
     sgraph_class = SGraph
+
+    global gframe_class
+    from ..data_structures.gframe import GFrame
+    gframe_class = GFrame
 
     global build_native_function_call
     from ..extensions import _build_native_function_call
@@ -159,6 +165,8 @@ cdef int _get_tr_code_by_type_string(object v) except -1:
     elif type(v) is dict:
         ret =  VAR_TR_DICT
     elif type(v) is sframe_class or v.__class__ is sframe_class:
+        ret =  VAR_TR_SFRAME
+    elif type(v) is gframe_class or v.__class__ is gframe_class:
         ret =  VAR_TR_SFRAME
     elif v.__class__ is sgraph_class:
         ret =  VAR_TR_GRAPH
@@ -583,8 +591,10 @@ cdef variant_map_type from_dict(dict d) except *:
     """
     cdef variant_map_type ret
     cdef flex_dict fd
-
-    _var_set_dict_internal(ret, fd, d, True)
+    if d is None:
+        return ret
+    else:
+        _var_set_dict_internal(ret, fd, d, True)
     return ret
 
 
@@ -595,7 +605,10 @@ cdef variant_vector_type from_list(list v) except *:
     cdef variant_vector_type ret
     cdef flex_list fl
 
-    _var_set_listlike_internal(ret, fl, v, True)
+    if v is None:
+        return ret
+    else:
+        _var_set_listlike_internal(ret, fl, v, True)
     return ret
 
 

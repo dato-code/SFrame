@@ -708,8 +708,8 @@ std::shared_ptr<unity_sframe_base> unity_sframe::head(size_t nrows) {
       return false;
     };
 
-    query_eval::planner().materialize(this->get_planner_node(),
-                                      callback,
+      query_eval::planner().materialize(this->get_planner_node(),
+                                        callback,
                                       1 /* process in as 1 segment */);
   }
   sf_head.close();

@@ -103,7 +103,7 @@ void check_vector_equal_size(const gl_sarray& in) {
            throw_error(thread_idx * m_size / n_threads, 
                               vector_size, expected_sizes[thread_idx]);
          } 
-      }
+    }
     }
   }
 }
