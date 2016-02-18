@@ -347,8 +347,6 @@ class GLPickler(_cloudpickle.CloudPickler):
                 self.mark_for_delete -= set([filename])
 
                 # Save the object
-                print "Obj = %s" % obj
-                print "Type = %s" % type(obj)
                 obj.__gl_pickle_save__(filename)
 
                 # Memoize.
