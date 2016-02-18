@@ -587,3 +587,10 @@ class Model(CustomModel):
         contain elements that are written using Python + GraphLab objects.
         """
         return False
+
+    def __gl_pickle_save__(self, filename):
+        self.save(filename)
+
+    @staticmethod
+    def __gl_pickle_load__(filename):
+        return load_model(filename)

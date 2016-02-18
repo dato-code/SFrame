@@ -1166,19 +1166,19 @@ class SGraph(object):
         >>> g.show(highlight=[2, 3], vlabel='id', arrows=True)
         """
         from ..visualization.show import show
-        show(self, 
-             vlabel=vlabel, 
-             vlabel_hover=vlabel_hover, 
+        show(self,
+             vlabel=vlabel,
+             vlabel_hover=vlabel_hover,
              vcolor=vcolor,
-             highlight=highlight, 
-             highlight_color=highlight_color, 
+             highlight=highlight,
+             highlight_color=highlight_color,
              node_size=node_size,
-             elabel=elabel, 
-             elabel_hover=elabel_hover, 
+             elabel=elabel,
+             elabel_hover=elabel_hover,
              ecolor=ecolor,
-             ewidth=ewidth, 
-             v_offset=v_offset, 
-             h_offset=h_offset, 
+             ewidth=ewidth,
+             v_offset=v_offset,
+             h_offset=h_offset,
              arrows=arrows,
              vertex_positions=vertex_positions)
 
@@ -1265,6 +1265,13 @@ class SGraph(object):
 
         g = g.add_edges(edges, src_field='__src_id', dst_field='__dst_id')
         return g
+
+    def __gl_pickle_save__(self, filename):
+        self.save(filename)
+
+    @staticmethod
+    def __gl_pickle_load__(filename):
+        return load_sgraph(filename)
 
 
 #/**************************************************************************/

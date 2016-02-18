@@ -62,6 +62,8 @@ from .util import get_log_location, get_client_log_location, get_server_log_loca
 from .version_info import version
 from .version_info import __VERSION__
 
+from _gl_pickle import GLPickler
+from _gl_pickle import GLUnpickler
 
 class DeprecationHelper(object):
     def __init__(self, new_target):
