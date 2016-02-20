@@ -8,6 +8,7 @@ of the BSD license. See the LICENSE file for details.
 from libcpp.vector cimport vector
 from libcpp.string cimport string
 from libc.stdio cimport printf
+from .python_printer_callback import print_callback
 
 cdef class PyCommClient:
 
@@ -32,3 +33,11 @@ def make_comm_client_from_existing_ptr(size_t client_ptr):
     ret.thisptr = <comm_client*>(client_ptr)
     return ret
 
+cdef void print_status(string status_string) nogil:
+    with gil:
+        status_string = status_string.rstrip()
+        print_callback(status_string)
+
+ctypedef void* void_p
+cpdef get_print_status_function_pointer():
+    return <size_t>(<void_p>(print_status))
