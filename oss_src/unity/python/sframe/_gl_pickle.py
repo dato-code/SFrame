@@ -5,9 +5,9 @@ All rights reserved.
 This software may be modified and distributed under the terms
 of the BSD license. See the LICENSE file for details.
 '''
-from . import util as _util, toolkits as _toolkits, SFrame as _SFrame, SArray as _SArray, \
-    SGraph as _SGraph, load_graph as _load_graph
-
+from . import util as _util, toolkits as _toolkits, SFrame as \
+        _SFrame, SArray as _SArray, SGraph as _SGraph, load_graph as\
+        _load_graph
 from .util import _get_aws_credentials as _util_get_aws_credentials, \
     cloudpickle as _cloudpickle, file_util as _file_util
 
@@ -28,7 +28,6 @@ def _get_temp_filename():
 
 def _get_tmp_file_location():
     return _util._make_temp_directory(prefix='gl_pickle_')
-
 
 def _get_class_from_name(module_name, class_name):
     import importlib
@@ -184,11 +183,11 @@ class GLPickler(_cloudpickle.CloudPickler):
 
         Parameters
         ----------
-        filename  : Name of the file to write to. This file is all you need to pickle
-                    all objects (including GLC objects).
+        filename  : Name of the file to write to. This file is all you need to
+        pickle all objects (including GLC objects).
 
-        protocol  : Pickle protocol (see pickle docs). Note that all pickle protocols
-                    may not be compatable with GLC objects.
+        protocol  : Pickle protocol (see pickle docs). Note: All pickle
+        protocols may not be compatable with GLC objects.
 
         min_bytes_to_save : Cloud pickle option (see cloud pickle docs).
 
@@ -358,12 +357,13 @@ class GLPickler(_cloudpickle.CloudPickler):
 
                 # Save the object
                 obj.__gl_pickle_save__(filename)
+                type_tag = (obj.__module__, obj.__class__.__name__)
 
                 # Memoize.
                 self.gl_object_memo.add(id(obj))
 
                 # Return the tuple (load_func, relative_filename) in archive.
-                return (obj.__gl_pickle_load__, relative_filename, id(obj))
+                return (type_tag, relative_filename, id(obj))
 
         # Not a GLC object. Default to cloud pickle
         else:
@@ -562,9 +562,7 @@ class GLUnpickler(_pickle.Unpickler):
                                 class_name)
                         obj = type_class.__gl_pickle_load__(abs_path)
                 else:
-                    raise Exception(
-                      "Unknown version %s: Expected version in [1.0, 2.0]" \
-                                   % self.version)
+                    raise Exception("Unknown version %s" % self.version)
                 self.gl_object_memo[object_id] = obj
                 return obj
 

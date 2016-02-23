@@ -239,7 +239,7 @@ class GLPicklingTest(unittest.TestCase):
 
         del os.environ['GRAPHLAB_UNIT_TEST']
 
-    @nottest
+    #@unittest.skip("Can be run locally for testing.")
     def test_backward_compatibility(self):
 
         # Arrange
@@ -258,7 +258,7 @@ class GLPicklingTest(unittest.TestCase):
         assert_sframe_equal(obj['foo-bar'][1], obj_ret['foo-bar'][1])
         self.assertEqual(obj['foo-bar'][0], obj_ret['foo-bar'][0])
 
-    @nottest
+    #@unittest.skip("Can be run locally for testing.")
     def test_backward_compatibility_v1(self):
 
         # Arrange
