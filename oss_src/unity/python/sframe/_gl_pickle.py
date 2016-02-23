@@ -29,6 +29,17 @@ def _get_temp_filename():
 def _get_tmp_file_location():
     return _util._make_temp_directory(prefix='gl_pickle_')
 
+
+def _get_class_from_name(module_name, class_name):
+    import importlib
+
+    # load the module, will raise ImportError if module cannot be loaded
+    m = importlib.import_module(module_name)
+
+    # get the class, will raise AttributeError if class cannot be found
+    c = getattr(m, class_name)
+    return c
+
 def _is_gl_pickle_extensible(obj):
     """
     Check if an object has an external serialization prototol. We do so by
@@ -188,14 +199,13 @@ class GLPickler(_cloudpickle.CloudPickler):
         """
         # Zipfile
         # --------
-        # Version 1: GLC 1.2.1
+        # Version None: GLC 1.2.1
         #
         # Directory:
         # ----------
         # Version 1: GLC 1.4: 1
-        # Version 2: SFrame 1.8.2+ (new gl_pickle extensibility mechanism)
 
-        VERSION = "2.0"
+        VERSION = "1.0"
         self.archive_filename = None
         self.gl_temp_storage_path = _get_tmp_file_location()
         self.gl_object_memo = set()
@@ -305,11 +315,11 @@ class GLPickler(_cloudpickle.CloudPickler):
                     with open(filename, 'w') as f:
                         f.write(self.member)
 
-                @staticmethod
-                def __gl_pickle_load__(filename):
+                @classmethod
+                def __gl_pickle_load__(cls, filename):
                     with open(filename, 'r') as f:
                         member = f.read().split()
-                    return SampleClass(member)
+                    return cls(member)
 
         WARNING: Version 1.0 and before of GLPickle only supported the
         following extended objects.
@@ -500,9 +510,9 @@ class GLUnpickler(_pickle.Unpickler):
                 self.version = open(version_filename).read().strip()
             except:
                 raise IOError("Corrupted archive: Corrupted version file.")
-            if self.version not in ["1.0", "2.0"]:
+            if self.version not in ["1.0"]:
                 raise Exception(
-                    "Corrupted archive: Version string must be in [1.0, 2.0]")
+                    "Corrupted archive: Version string must be 1.0.")
             self.pickle_filename = pickle_filename
             self.gl_temp_storage_path = _os.path.abspath(filename)
 
@@ -543,9 +553,14 @@ class GLUnpickler(_pickle.Unpickler):
             else:
                 abs_path = _os.path.join(self.gl_temp_storage_path, filename)
                 if self.version in ["1.0", None]:
-                    obj = _get_gl_object_from_persistent_id(type_tag, abs_path)
-                elif self.version == "2.0":
-                    obj = type_tag(abs_path)
+                    if type_tag in ["SFrame", "SGraph", "SArray", "Model"]:
+                        obj = _get_gl_object_from_persistent_id(type_tag,
+                                abs_path)
+                    else:
+                        module_name, class_name = type_tag
+                        type_class = _get_class_from_name(module_name,
+                                class_name)
+                        obj = type_class.__gl_pickle_load__(abs_path)
                 else:
                     raise Exception(
                       "Unknown version %s: Expected version in [1.0, 2.0]" \
