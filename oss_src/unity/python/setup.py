@@ -131,7 +131,7 @@ if __name__ == '__main__':
         sys.stderr.write(msg)
         sys.exit(1)
 
-    version_number='1.9'#{{VERSION_STRING}}
+    version_number='1.8.4'#{{VERSION_STRING}}
     setup(
         name="SFrame",
         version=version_number,
