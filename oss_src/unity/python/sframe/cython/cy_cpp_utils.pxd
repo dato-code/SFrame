@@ -45,12 +45,22 @@ cdef inline string unsafe_unicode_to_cpp(py_s) except *:
         return (<str>py_s).encode()
     else:
         return (<unicode>py_s).encode('UTF-8')
-            
-cdef inline str cpp_to_str(const string& cpp_s):
+
+# With cpp_to_str, a c++ string is decoded into bytes if
+# disable_cpp_str_decode() has been called, or str otherwise.  If
+# decoding is done into bytes, as is needed by some contexts, then
+# enable_cpp_str_decode() should be called immediately afterwards --
+# i.e. use a try...finally block!
+    
+cpdef disable_cpp_str_decode()
+cpdef enable_cpp_str_decode()
+cdef _cpp_to_str_py3_decode(const string& cpp_s)
+                
+cdef inline cpp_to_str(const string& cpp_s):
     cdef const char* c_s = cpp_s.data()
     
     if PY_MAJOR_VERSION >= 3:
-        return c_s[:cpp_s.size()].decode()
+        return _cpp_to_str_py3_decode(cpp_s)
     else:
         return str(c_s[:cpp_s.size()])
 

@@ -52,3 +52,28 @@ cdef string _attempt_cast_str_to_cpp(py_s) except *:
 
     # Okay, none of these worked, so error out.
     raise TypeError("Type '%s' cannot be interpreted as str." % str(type(py_s)))
+
+
+cdef bint _cpp_to_str_py3_decode_enabled = True
+
+cpdef disable_cpp_str_decode():
+    global _cpp_to_str_py3_decode_enabled
+    assert _cpp_to_str_py3_decode_enabled == True
+    _cpp_to_str_py3_decode_enabled = False
+
+cpdef enable_cpp_str_decode():
+    global _cpp_to_str_py3_decode_enabled
+    assert _cpp_to_str_py3_decode_enabled == False
+    _cpp_to_str_py3_decode_enabled = True
+
+cdef _cpp_to_str_py3_decode(const string& cpp_s):
+    """
+    Decodes a c++ string into bytes if disable_cpp_str_decode() has
+    been called, or str otherwise.
+    """
+    cdef const char* c_s = cpp_s.data()
+
+    if _cpp_to_str_py3_decode_enabled:
+        return c_s[:cpp_s.size()].decode()
+    else:
+        return <bytes>(c_s[:cpp_s.size()])
