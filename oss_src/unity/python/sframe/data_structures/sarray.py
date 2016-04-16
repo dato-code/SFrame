@@ -788,7 +788,6 @@ class SArray(object):
             else:
                 return SArray(_proxy = self.__proxy__.left_scalar_operator(other, '/'))
 
-
     def __floordiv__(self, other):
         """
         If other is a scalar value, divides each element of the current array
@@ -835,6 +834,19 @@ class SArray(object):
         """
         with cython_context():
             return SArray(_proxy = self.__proxy__.left_scalar_operator(0, 'left_abs'))
+            
+    def __invert__(self):
+        """
+        Returns the logical not of each element, assuming boolean array.
+        """
+        if self.dtype() not in [int, long]:
+            raise RuntimeError("Runtime Exception. Unsupported type operation. "
+                               "cannot perform operation ~ on type %s" % str(self.dtype()))
+        if self.min() not in [0, 1] or self.max() not in [0, 1]:
+            raise RuntimeError("Runtime Exception. ~ operation only supports boolean array. ")
+
+        with cython_context():
+            return SArray(_proxy = self.__proxy__.left_scalar_operator(1, '!='))
 
     def __mod__(self, other):
         """
@@ -845,7 +857,6 @@ class SArray(object):
                 return SArray(_proxy = self.__proxy__.vector_operator(other.__proxy__, '%'))
             else:
                 return SArray(_proxy = self.__proxy__.left_scalar_operator(other, '%'))
-
 
     def __lt__(self, other):
         """
@@ -871,7 +882,6 @@ class SArray(object):
             else:
                 return SArray(_proxy = self.__proxy__.left_scalar_operator(other, '>'))
 
-
     def __le__(self, other):
         """
         If other is a scalar value, compares each element of the current array
@@ -883,7 +893,6 @@ class SArray(object):
                 return SArray(_proxy = self.__proxy__.vector_operator(other.__proxy__, '<='))
             else:
                 return SArray(_proxy = self.__proxy__.left_scalar_operator(other, '<='))
-
 
     def __ge__(self, other):
         """
@@ -897,7 +906,6 @@ class SArray(object):
             else:
                 return SArray(_proxy = self.__proxy__.left_scalar_operator(other, '>='))
 
-
     def __radd__(self, other):
         """
         Adds a scalar value to the current array.
@@ -905,7 +913,6 @@ class SArray(object):
         """
         with cython_context():
             return SArray(_proxy = self.__proxy__.right_scalar_operator(other, '+'))
-
 
     def __rsub__(self, other):
         """
@@ -915,7 +922,6 @@ class SArray(object):
         with cython_context():
             return SArray(_proxy = self.__proxy__.right_scalar_operator(other, '-'))
 
-
     def __rmul__(self, other):
         """
         Multiplies a scalar value to the current array.
@@ -923,7 +929,6 @@ class SArray(object):
         """
         with cython_context():
             return SArray(_proxy = self.__proxy__.right_scalar_operator(other, '*'))
-
 
     def __rdiv__(self, other):
         """
@@ -949,7 +954,6 @@ class SArray(object):
         """
         with cython_context():
             return SArray(_proxy = self.__proxy__.right_scalar_operator(other, '/')).astype(int)
-
 
     def __rmod__(self, other):
         """
@@ -980,7 +984,6 @@ class SArray(object):
             else:
                 return SArray(_proxy = self.__proxy__.left_scalar_operator(other, '=='))
 
-
     def __ne__(self, other):
         """
         If other is a scalar value, compares each element of the current array
@@ -993,7 +996,6 @@ class SArray(object):
             else:
                 return SArray(_proxy = self.__proxy__.left_scalar_operator(other, '!='))
 
-
     def __and__(self, other):
         """
         Perform a logical element-wise 'and' against another SArray.
@@ -1004,7 +1006,6 @@ class SArray(object):
         else:
             raise TypeError("SArray can only perform logical and against another SArray")
 
-
     def __or__(self, other):
         """
         Perform a logical element-wise 'or' against another SArray.
@@ -1014,7 +1015,6 @@ class SArray(object):
                 return SArray(_proxy = self.__proxy__.vector_operator(other.__proxy__, '|'))
         else:
             raise TypeError("SArray can only perform logical or against another SArray")
-
 
     def __has_size__(self):
         """
