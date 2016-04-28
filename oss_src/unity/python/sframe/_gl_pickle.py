@@ -114,15 +114,15 @@ class GLPickler(_cloudpickle.CloudPickler):
 
     .. sourcecode:: python
 
-        from graphlab.util import gl_pickle
-        import graphlab as gl
+        import sframe
+        from sframe import GLPickle
 
         obj = {'foo': gl.SFrame([1,2,3]),
                'bar': gl.SArray([1,2,3]),
                'foo-bar': ['foo-and-bar', gl.SFrame()]}
 
         # Setup the GLPickler
-        pickler = gl_pickle.GLPickler(filename = 'foo-bar')
+        pickler = GLPickler(filename = 'foo-bar')
         pickler.dump(obj)
 
         # The pickler has to be closed to make sure the files get closed.
@@ -132,7 +132,7 @@ class GLPickler(_cloudpickle.CloudPickler):
 
     .. sourcecode:: python
 
-        unpickler = gl_pickle.GLUnpickler(filename = 'foo-bar')
+        unpickler = GLUnpickler(filename = 'foo-bar')
         obj = unpickler.load()
         unpickler.close()
         print obj
@@ -143,14 +143,13 @@ class GLPickler(_cloudpickle.CloudPickler):
 
     .. sourcecode:: python
 
-        unpickler = gl_pickle.GLUnpickler('foo-bar')
+        unpickler = GLUnpickler('foo-bar')
         obj = unpickler.load()
         unpickler.close()
         print obj
 
-
     Notes
-    --------
+    -----
 
     The GLC pickler saves the files into single zip archive with the following
     file layout.
@@ -172,8 +171,6 @@ class GLPickler(_cloudpickle.CloudPickler):
      ....
 
     "gl_archive_dir_N"
-
-
 
     """
     def __init__(self, filename, protocol = -1, min_bytes_to_save = 0):
@@ -334,10 +331,6 @@ class GLPickler(_cloudpickle.CloudPickler):
             ("SFrame", 'sframe-save-path')
             ("SGraph", 'sgraph-save-path')
             ("Model", 'model-save-path')
-
-        Note that the key difference between version 1.0 and 2.0 is that 2.0 of
-        GLPickle is that version 2.0 saves the load_sframe method while 1.0
-        saves the string name for the class (which was hard-coded in)
 
         References
         ----------
