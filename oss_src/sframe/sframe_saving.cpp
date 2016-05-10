@@ -192,6 +192,12 @@ void sframe_save_blockwise(const sframe& sf_source,
       frame_index.column_files.push_back(col.index_file);
     }
     write_sframe_index_file(index_file, frame_index);
+    // cleanup and close. I wish C++ has finally
+    for(auto& col: cols) {
+      try {
+        block_manager.close_column(col.segment_address);
+      } catch (...) { }
+    }
   } catch (...) {
     // cleanup. close any open columns
     for(auto& col: cols) {
