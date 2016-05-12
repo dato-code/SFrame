@@ -515,6 +515,12 @@ class unity_sarray: public unity_sarray_base {
    */
   std::shared_ptr<unity_sarray_base> sample(float percent, int random_seed);
 
+  /**
+   * Returns an SArray of type flex_int that contains the hash of each element.
+   * The hash function takes a seed value so this can be used for
+   * random generation as well.
+   */
+  std::shared_ptr<unity_sarray_base> hash(int seed);
 
   /**
    * Do a word-count for each element in the SArray and return a SArray of dictionary

@@ -64,6 +64,7 @@ cdef extern from "<unity/lib/api/unity_sarray_interface.hpp>" namespace 'graphla
         unity_sarray_base_ptr drop_missing_values() except +
         unity_sarray_base_ptr fill_missing_values(flexible_type) except +
         unity_sarray_base_ptr sample(float, int) except +
+        unity_sarray_base_ptr hash(int) except +
         void materialize() except +
         bint is_materialized() except +
         unity_sarray_base_ptr append(unity_sarray_base_ptr) except +
@@ -174,6 +175,8 @@ cdef class UnitySArrayProxy:
     cpdef fill_missing_values(self, default_value)
 
     cpdef sample(self, float percent, int seed)
+
+    cpdef hash(self, int seed)
 
     cpdef materialize(self)
 

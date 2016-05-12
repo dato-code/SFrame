@@ -977,6 +977,31 @@ class SArrayTest(unittest.TestCase):
         sa_sample = SArray().sample(.5, 9)
         self.assertEqual(len(sa_sample), 0)
 
+    def test_hash(self):
+        a = SArray([0,1,0,1,0,1,0,1], int)
+        b = a.hash()
+        zero_hash = b[0]
+        one_hash = b[1]
+        self.assertTrue((b[a] == one_hash).all())
+        self.assertTrue((b[1-a] == zero_hash).all())
+
+        # I can hash other stuff too
+        # does not throw
+        a.astype(str).hash().__materialize__()
+
+        a.apply(lambda x: [x], list).hash().__materialize__()
+        
+        # Nones hash too!
+        a = SArray([None, None, None], int).hash()
+        self.assertTrue(a[0] is not None)
+        self.assertTrue((a == a[0]).all())
+
+    def test_random_integers(self):
+        a = SArray.random_integers(0)
+        self.assertEqual(len(a), 0)
+        a = SArray.random_integers(1000)
+        self.assertEqual(len(a), 1000)
+
     def test_vector_slice(self):
         d=[[1],[1,2],[1,2,3]]
         g=SArray(d, array.array)

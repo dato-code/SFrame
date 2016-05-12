@@ -1622,6 +1622,16 @@ std::shared_ptr<unity_sarray_base> unity_sarray::sample(float percent,
   return logical_filter(seq);
 }
 
+
+std::shared_ptr<unity_sarray_base> unity_sarray::hash(int random_seed) {
+  flex_int seed_hash = flexible_type((flex_int)(random_seed)).hash();
+  auto filter_fn = [seed_hash](const flexible_type& val)->flexible_type {
+        return hash64(val.hash() ^ seed_hash);
+      };
+  return transform_lambda(filter_fn, flex_type_enum::INTEGER, false, 0);
+}
+
+
 std::shared_ptr<unity_sarray_base>
 unity_sarray::count_bag_of_words(std::map<std::string, flexible_type> options) {
   log_func_entry();

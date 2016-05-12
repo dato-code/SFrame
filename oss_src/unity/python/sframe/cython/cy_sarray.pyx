@@ -312,6 +312,12 @@ cdef class UnitySArrayProxy:
             proxy = (self.thisptr.sample(percent, seed))
         return create_proxy_wrapper_from_existing_proxy(self._cli, proxy)
 
+    cpdef hash(self, int seed):
+        cdef unity_sarray_base_ptr proxy
+        with nogil:
+            proxy = (self.thisptr.hash(seed))
+        return create_proxy_wrapper_from_existing_proxy(self._cli, proxy)
+
     cpdef materialize(self):
         with nogil:
             self.thisptr.materialize()
