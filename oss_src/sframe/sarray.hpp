@@ -438,7 +438,7 @@ class sarray : public swriter_base<swriter_impl::output_iterator<T> > {
   /**
    * Returns all the index information of the array.
    */
-  const index_file_information get_index_info() const {
+  const index_file_information& get_index_info() const {
     return index_info;
   }
 
