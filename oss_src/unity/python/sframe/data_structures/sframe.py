@@ -2428,7 +2428,7 @@ class SFrame(object):
             }
 
         get_sql_param = sql_param[mod_info['paramstyle']]
-        
+
         # form insert string
         ins_str = "INSERT INTO " + str(table_name)
         value_str = " VALUES ("
@@ -6193,3 +6193,10 @@ class SFrame(object):
         self._cache = None
         self._proxy = value
         self._cache = None
+
+    def __gl_pickle_save__(self, filename):
+        self.save(filename)
+
+    @staticmethod
+    def __gl_pickle_load__(filename):
+        return load_sframe(filename)

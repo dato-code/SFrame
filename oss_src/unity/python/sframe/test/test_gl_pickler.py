@@ -5,6 +5,7 @@ import os
 import uuid
 import shutil
 import sys
+from nose.tools import nottest
 
 import pickle
 from ..util import cloudpickle
@@ -238,7 +239,8 @@ class GLPicklingTest(unittest.TestCase):
 
         del os.environ['GRAPHLAB_UNIT_TEST']
 
-    def _test_backward_compatibility(self):
+    #@unittest.skip("Can be run locally for testing.")
+    def test_backward_compatibility(self):
 
         # Arrange
         file_name = 's3://gl-internal-datasets/models/1.3/gl-pickle.gl'
@@ -255,6 +257,26 @@ class GLPicklingTest(unittest.TestCase):
         assert_sframe_equal(obj['bar'], obj_ret['bar'])
         assert_sframe_equal(obj['foo-bar'][1], obj_ret['foo-bar'][1])
         self.assertEqual(obj['foo-bar'][0], obj_ret['foo-bar'][0])
+
+    #@unittest.skip("Can be run locally for testing.")
+    def test_backward_compatibility_v1(self):
+
+        # Arrange
+        file_name = 's3://gl-internal-datasets/archives/gl-pickle-1.0.gl'
+        obj = {'foo': SFrame([1,2,3]),
+               'bar': SFrame(),
+               'foo-bar': ['foo-and-bar', SFrame([1])]}
+
+        # Act
+        unpickler = gl_pickle.GLUnpickler(file_name)
+        obj_ret = unpickler.load()
+
+        # Assert
+        assert_sframe_equal(obj['foo'], obj_ret['foo'])
+        assert_sframe_equal(obj['bar'], obj_ret['bar'])
+        assert_sframe_equal(obj['foo-bar'][1], obj_ret['foo-bar'][1])
+        self.assertEqual(obj['foo-bar'][0], obj_ret['foo-bar'][0])
+
 
     def test_save_over_previous(self):
 
@@ -273,4 +295,43 @@ class GLPicklingTest(unittest.TestCase):
             pickler.dump(obj)
             pickler.close()
 
+    def test_extensibility(self):
 
+        class SampleClass:
+            def __init__(self, member):
+               self.member = member
+
+            def __gl_pickle_save__(self, filename):
+                with open(filename, 'w') as f:
+                    f.write(self.member)
+
+            @staticmethod
+            def __gl_pickle_save__(filename):
+                with open(filename, 'r') as f:
+                    member = f.read().split()
+                return SampleClass(member)
+
+            def __eq__(self, other):
+                return self.member == other.member
+
+        test_list = [
+            1,
+            SFrame([1,2,3]),
+            SampleClass("Obj-1"),
+            [SampleClass("Obj-1"), SampleClass("Obj-22")],
+            {'one': SampleClass("Obj-1"), 'two': SampleClass("Obj-22")}
+        ]
+        for obj in test_list:
+            pickler = gl_pickle.GLPickler(self.filename)
+            pickler.dump(obj)
+            pickler.close()
+
+            obj_ret = gl_pickle.GLUnpickler(self.filename).load()
+            if type(obj) == SFrame:
+                assert_sframe_equal(obj, obj_ret)
+            else:
+                self.assertEqual(obj, obj_ret)
+
+            pickler = gl_pickle.GLPickler(self.filename)
+            pickler.dump(obj)
+            pickler.close()

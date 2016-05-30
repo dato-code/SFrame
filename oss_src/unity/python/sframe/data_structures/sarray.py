@@ -4124,3 +4124,10 @@ class SArray(object):
         from .. import extensions
         agg_op = "__builtin__cum_var__"
         return SArray(_proxy = self.__proxy__.builtin_cumulative_aggregate(agg_op))
+
+    def __gl_pickle_save__(self, filename):
+        self.save(filename)
+
+    @staticmethod
+    def __gl_pickle_load__(filename):
+        return SArray(filename)

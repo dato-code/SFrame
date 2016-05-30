@@ -5,9 +5,9 @@ All rights reserved.
 This software may be modified and distributed under the terms
 of the BSD license. See the LICENSE file for details.
 '''
-from . import util as _util, toolkits as _toolkits, SFrame as _SFrame, SArray as _SArray, \
-    SGraph as _SGraph, load_graph as _load_graph
-
+from . import util as _util, toolkits as _toolkits, SFrame as \
+        _SFrame, SArray as _SArray, SGraph as _SGraph, load_graph as\
+        _load_graph
 from .util import _get_aws_credentials as _util_get_aws_credentials, \
     cloudpickle as _cloudpickle, file_util as _file_util
 
@@ -29,86 +29,54 @@ def _get_temp_filename():
 def _get_tmp_file_location():
     return _util._make_temp_directory(prefix='gl_pickle_')
 
-def _is_not_pickle_safe_gl_model_class(obj_class):
-    """
-    Check if a GraphLab create model is pickle safe.
+def _get_class_from_name(module_name, class_name):
+    import importlib
 
-    The function does it by checking that _CustomModel is the base class.
+    # load the module, will raise ImportError if module cannot be loaded
+    m = importlib.import_module(module_name)
+
+    # get the class, will raise AttributeError if class cannot be found
+    c = getattr(m, class_name)
+    return c
+
+def _is_gl_pickle_extensible(obj):
+    """
+    Check if an object has an external serialization prototol. We do so by
+    checking if the object has the methods __gl_pickle_load__ and
+    __gl_pickle_save__.
 
     Parameters
     ----------
-    obj_class    : Class to be checked.
+    obj: An object
 
     Returns
     ----------
-    True if the GLC class is a model and is pickle safe.
+    True (if usable by gl_pickle)
 
     """
-    if issubclass(obj_class, _toolkits._model.CustomModel):
-        return not obj_class._is_gl_pickle_safe()
-    return False
-
-def _is_not_pickle_safe_gl_class(obj_class):
-    """
-    Check if class is a GraphLab create model.
-
-    The function does it by checking the method resolution order (MRO) of the
-    class and verifies that _Model is the base class.
-
-    Parameters
-    ----------
-    obj_class    : Class to be checked.
-
-    Returns
-    ----------
-    True if the class is a GLC Model.
-
-    """
-    gl_ds = [_SFrame, _SArray, _SGraph]
-
-    # Object is GLC-DS or GLC-Model
-    return (obj_class in gl_ds) or _is_not_pickle_safe_gl_model_class(obj_class)
-
-def _get_gl_class_type(obj_class):
-    """
-    Internal util to get the type of the GLC class. The pickle file stores
-    this name so that it knows how to construct the object on unpickling.
-
-    Parameters
-    ----------
-    obj_class    : Class which has to be categoriized.
-
-    Returns
-    ----------
-    A class type for the pickle file to save.
-
-    """
-
-    if obj_class == _SFrame:
-        return "SFrame"
-    elif obj_class == _SGraph:
-        return "SGraph"
-    elif obj_class == _SArray:
-        return "SArray"
-    elif _is_not_pickle_safe_gl_model_class(obj_class):
-        return "Model"
+    obj_class = None if not hasattr(obj, '__class__') else obj.__class__
+    if obj_class is None:
+        return False
     else:
-        return None
+        return hasattr(obj_class, '__gl_pickle_load__') and \
+               hasattr(obj_class, '__gl_pickle_save__')
 
 def _get_gl_object_from_persistent_id(type_tag, gl_archive_abs_path):
     """
-    Internal util to get a GLC object from a persistent ID in the pickle file.
+    (GLPickle Version 1.0).
+
+    Get an object from a persistent ID.
 
     Parameters
     ----------
-    type_tag : The name of the glc class as saved in the GLC pickler.
+    type_tag : The name of the class as saved in the GLPickler.
 
-    gl_archive_abs_path: An absolute path to the GLC archive where the
-                          object was saved.
+    gl_archive_abs_path: An absolute path to the archive where the
+                         object was saved.
 
     Returns
     ----------
-    The GLC object.
+    object: The deserialized object.
 
     """
     if type_tag == "SFrame":
@@ -121,8 +89,10 @@ def _get_gl_object_from_persistent_id(type_tag, gl_archive_abs_path):
         from . import load_model as _load_model
         obj = _load_model(gl_archive_abs_path)
     else:
-        raise _pickle.UnpicklingError("GraphLab pickling Error: Unspported object."
-              " Only SFrames, SGraphs, SArrays, and Models are supported.")
+        raise _pickle.UnpicklingError("Pickling Error: Unspported object."
+              " Implement the methods __gl_pickle_load__ and"
+              " __gl_pickle_save__ to use GLPickle. See the docstrings"
+              " for examples.")
     return obj
 
 class GLPickler(_cloudpickle.CloudPickler):
@@ -131,15 +101,11 @@ class GLPickler(_cloudpickle.CloudPickler):
         return set([_os.path.abspath(x) for x in l])
 
     """
-
-    # GLC pickle works with:
+    # GLPickle works with:
     #
     # (1) Regular python objects
-    # (2) SArray
-    # (3) SFrame
-    # (4) SGraph
-    # (5) Models
-    # (6) Any combination of (1) - (5)
+    # (2) Any object with __gl_pickle_save__ and __gl_pickle_load__
+    # (3) Any combination of (1) - (2)
 
     Examples
     --------
@@ -148,15 +114,15 @@ class GLPickler(_cloudpickle.CloudPickler):
 
     .. sourcecode:: python
 
-        from graphlab.util import gl_pickle
-        import graphlab as gl
+        import sframe
+        from sframe import GLPickle
 
         obj = {'foo': gl.SFrame([1,2,3]),
                'bar': gl.SArray([1,2,3]),
                'foo-bar': ['foo-and-bar', gl.SFrame()]}
 
-        # Setup the GLC pickler
-        pickler = gl_pickle.GLPickler(filename = 'foo-bar')
+        # Setup the GLPickler
+        pickler = GLPickler(filename = 'foo-bar')
         pickler.dump(obj)
 
         # The pickler has to be closed to make sure the files get closed.
@@ -166,25 +132,24 @@ class GLPickler(_cloudpickle.CloudPickler):
 
     .. sourcecode:: python
 
-        unpickler = gl_pickle.GLUnpickler(filename = 'foo-bar')
+        unpickler = GLUnpickler(filename = 'foo-bar')
         obj = unpickler.load()
         unpickler.close()
         print obj
 
-    The GLC pickler needs a temporary working directory to manage GLC objects.
-    This temporary working path must be a local path to the file system. It
-    can also be a relative path in the FS.
+    The GLPickler needs a temporary working directory to manage GLC objects.
+    This temporary working path must be a local path to the file system. It can
+    also be a relative path in the filesystem.
 
     .. sourcecode:: python
 
-        unpickler = gl_pickle.GLUnpickler('foo-bar')
+        unpickler = GLUnpickler('foo-bar')
         obj = unpickler.load()
         unpickler.close()
         print obj
 
-
     Notes
-    --------
+    -----
 
     The GLC pickler saves the files into single zip archive with the following
     file layout.
@@ -207,8 +172,6 @@ class GLPickler(_cloudpickle.CloudPickler):
 
     "gl_archive_dir_N"
 
-
-
     """
     def __init__(self, filename, protocol = -1, min_bytes_to_save = 0):
         """
@@ -217,11 +180,11 @@ class GLPickler(_cloudpickle.CloudPickler):
 
         Parameters
         ----------
-        filename  : Name of the file to write to. This file is all you need to pickle
-                    all objects (including GLC objects).
+        filename  : Name of the file to write to. This file is all you need to
+        pickle all objects (including GLC objects).
 
-        protocol  : Pickle protocol (see pickle docs). Note that all pickle protocols
-                    may not be compatable with GLC objects.
+        protocol  : Pickle protocol (see pickle docs). Note: All pickle
+        protocols may not be compatable with GLC objects.
 
         min_bytes_to_save : Cloud pickle option (see cloud pickle docs).
 
@@ -232,12 +195,13 @@ class GLPickler(_cloudpickle.CloudPickler):
         """
         # Zipfile
         # --------
-        # Version 1: GLC 1.2.1
+        # Version None: GLC 1.2.1
         #
         # Directory:
         # ----------
         # Version 1: GLC 1.4: 1
 
+        VERSION = "1.0"
         self.archive_filename = None
         self.gl_temp_storage_path = _get_tmp_file_location()
         self.gl_object_memo = set()
@@ -289,7 +253,7 @@ class GLPickler(_cloudpickle.CloudPickler):
 
         # Write the version number.
         with open(_os.path.join(self.gl_temp_storage_path, 'version'), 'w') as f:
-            f.write("1.0")
+            f.write(VERSION)
 
     def _set_hdfs_exec_dir(self, exec_dir):
         self.hdfs_exec_dir= exec_dir
@@ -308,56 +272,91 @@ class GLPickler(_cloudpickle.CloudPickler):
         obj: Name of the object whose persistant ID is extracted.
 
         Returns
-        --------
+        -------
         None if the object is not a GLC object. (ClassName, relative path)
         if the object is a GLC object.
 
-        Notes
-        -----
-
-        Borrowed from pickle docs (https://docs.python.org/2/library/_pickle.html)
-
+        Examples
+        --------
         For the benefit of object persistence, the pickle module supports the
-        notion of a reference to an object outside the pickled data stream.
+        notion of a reference to an object outside the pickled data stream. To
+        pickle objects that have an external persistent id, the pickler must
+        have a custom persistent_id() method that takes an object as an
+        argument and returns either None or the persistent id for that object.
 
-        To pickle objects that have an external persistent id, the pickler must
-        have a custom persistent_id() method that takes an object as an argument and
-        returns either None or the persistent id for that object.
-
-        For GLC objects, the persistent_id is merely a relative file path (within
-        the ZIP archive) to the GLC archive where the GLC object is saved. For
+        For extended objects, the persistent_id is merely a relative file path
+        (within the ZIP archive) to the archive where the object is saved. For
         example:
 
-            (SFrame, 'sframe-save-path')
-            (SGraph, 'sgraph-save-path')
-            (Model, 'model-save-path')
+            (load_sframe, 'sframe-save-path')
+            (load_sgraph, 'sgraph-save-path')
+            (load_model, 'model-save-path')
 
+        To extend your object to work with gl_pickle you need to implement two
+        simple functions __gl_pickle_load__ and __gl_pickle_save__.
+          (1) __gl_pickle_save__: A member method to save your object to a
+          filepath (not file handle) given.
+          (2) __gl_pickle_load__: A static method that lets you load your object
+          from a filepath (not file handle).
+
+        A simple example is provided below:
+
+        .. sourcecode:: python
+
+            class SampleClass(object):
+                def __init__(self, member):
+                   self.member = member
+
+                def __gl_pickle_save__(self, filename):
+                    with open(filename, 'w') as f:
+                        f.write(self.member)
+
+                @classmethod
+                def __gl_pickle_load__(cls, filename):
+                    with open(filename, 'r') as f:
+                        member = f.read().split()
+                    return cls(member)
+
+        WARNING: Version 1.0 and before of GLPickle only supported the
+        following extended objects.
+
+        - SFrame
+        - SGraph
+        - Model
+
+        For these objects, the persistent_id was also  a relative file path
+        (within the ZIP archive) to the archive where the object is saved. For
+        example:
+
+            ("SFrame", 'sframe-save-path')
+            ("SGraph", 'sgraph-save-path')
+            ("Model", 'model-save-path')
+
+        References
+        ----------
+         - Python Pickle Docs(https://docs.python.org/2/library/_pickle.html)
         """
-
-        # Get the class of the object (if it can be done)
-        obj_class = None if not hasattr(obj, '__class__') else obj.__class__
-        if obj_class is None:
-            return None
-
-        # If the object is a GLC class.
-        if _is_not_pickle_safe_gl_class(obj_class):
+        # If the object is a GL class.
+        if _is_gl_pickle_extensible(obj):
             if (id(obj) in self.gl_object_memo):
                 # has already been pickled
                 return (None, None, id(obj))
             else:
-                # Save the location of the GLC object's archive to the pickle file.
+                # Save the location of the object's archive to the pickle file.
                 relative_filename = str(_uuid.uuid4())
-                filename = _os.path.join(self.gl_temp_storage_path, relative_filename)
+                filename = _os.path.join(self.gl_temp_storage_path,
+                        relative_filename)
                 self.mark_for_delete -= set([filename])
 
-                # Save the GLC object
-                obj.save(filename)
+                # Save the object
+                obj.__gl_pickle_save__(filename)
+                type_tag = (obj.__module__, obj.__class__.__name__)
 
                 # Memoize.
                 self.gl_object_memo.add(id(obj))
 
-                # Return the tuple (class_name, relative_filename) in archive.
-                return (_get_gl_class_type(obj.__class__), relative_filename, id(obj))
+                # Return the tuple (load_func, relative_filename) in archive.
+                return (type_tag, relative_filename, id(obj))
 
         # Not a GLC object. Default to cloud pickle
         else:
@@ -387,12 +386,9 @@ class GLPickler(_cloudpickle.CloudPickler):
 
         for f in self.mark_for_delete:
             error = [False]
-
             def register_error(*args):
                 error[0] = True
-
             _shutil.rmtree(f, onerror = register_error)
-
             if error[0]:
                 _atexit.register(_shutil.rmtree, f, ignore_errors=True)
 
@@ -438,6 +434,7 @@ class GLUnpickler(_pickle.Unpickler):
         self.tmp_file = None
         self.file = None
         self.gl_temp_storage_path = _get_tmp_file_location()
+        self.version = None
 
         # GLC 1.3 used Zipfiles for storing the objects.
         self.directory_mode = True
@@ -447,11 +444,13 @@ class GLUnpickler(_pickle.Unpickler):
             # GLC 1.3 uses zipfiles
             if _file_util._is_valid_s3_key(filename):
                 _file_util.download_from_s3(filename, self.tmp_file, \
-                        aws_credentials = _get_aws_credentials(), is_dir=False, silent=True)
+                        aws_credentials = _get_aws_credentials(), is_dir=False,
+                        silent=True)
             # GLC 1.4 uses directories
             else:
                 _file_util.download_from_s3(filename, self.tmp_file, \
-                        aws_credentials = _get_aws_credentials(), is_dir=True, silent=True)
+                        aws_credentials = _get_aws_credentials(), is_dir=True,
+                        silent=True)
 
             filename = self.tmp_file
         elif _file_util.is_hdfs_path(filename):
@@ -495,9 +494,18 @@ class GLUnpickler(_pickle.Unpickler):
             self.directory_mode = True
             pickle_filename = _os.path.join(filename, "pickle_archive")
             if not _os.path.exists(pickle_filename):
-                raise IOError("Corrupted archive: Missing pickle file %s." % pickle_filename)
+                raise IOError("Corrupted archive: Missing pickle file %s." \
+                                                  % pickle_filename)
             if not _os.path.exists(_os.path.join(filename, "version")):
                 raise IOError("Corrupted archive: Missing version file.")
+            try:
+                version_filename = _os.path.join(filename, "version")
+                self.version = open(version_filename).read().strip()
+            except:
+                raise IOError("Corrupted archive: Corrupted version file.")
+            if self.version not in ["1.0"]:
+                raise Exception(
+                    "Corrupted archive: Version string must be 1.0.")
             self.pickle_filename = pickle_filename
             self.gl_temp_storage_path = _os.path.abspath(filename)
 
@@ -514,7 +522,8 @@ class GLUnpickler(_pickle.Unpickler):
         """
         Reconstruct a GLC object using the persistent ID.
 
-        This method should not be used externally. It is required by the unpickler super class.
+        This method should not be used externally. It is required by the
+        unpickler super class.
 
         Parameters
         ----------
@@ -525,18 +534,28 @@ class GLUnpickler(_pickle.Unpickler):
         The GLC object.
         """
         if len(pid) == 2:
-            # Pre GLC-1.3 release behavior, without memorization
+            # Pre GLC-1.3 release behavior, without memoization
             type_tag, filename = pid
             abs_path = _os.path.join(self.gl_temp_storage_path, filename)
             return  _get_gl_object_from_persistent_id(type_tag, abs_path)
         else:
-            # Post GLC-1.3 release behavior, with memorization
+            # Post GLC-1.3 release behavior, with memoization
             type_tag, filename, object_id = pid
             if object_id in self.gl_object_memo:
                 return self.gl_object_memo[object_id]
             else:
                 abs_path = _os.path.join(self.gl_temp_storage_path, filename)
-                obj = _get_gl_object_from_persistent_id(type_tag, abs_path)
+                if self.version in ["1.0", None]:
+                    if type_tag in ["SFrame", "SGraph", "SArray", "Model"]:
+                        obj = _get_gl_object_from_persistent_id(type_tag,
+                                abs_path)
+                    else:
+                        module_name, class_name = type_tag
+                        type_class = _get_class_from_name(module_name,
+                                class_name)
+                        obj = type_class.__gl_pickle_load__(abs_path)
+                else:
+                    raise Exception("Unknown version %s" % self.version)
                 self.gl_object_memo[object_id] = obj
                 return obj
 
