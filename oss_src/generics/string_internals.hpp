@@ -23,6 +23,7 @@ int _compare(const char* __s1, const char* __s2, size_t __n) noexcept {
   return 0;
 }
 
+GL_HOT_INLINE_FLATTEN static inline
 const char* _find(const char* __s, size_t __n, const char& __a) noexcept {
   for (; __n; --__n) {
     if (*__s == __a)

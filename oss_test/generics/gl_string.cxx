@@ -179,7 +179,7 @@ void verify_consistency(const gl_string& v) {
     TS_ASSERT(std::equal(v.begin(), v.end(), v_stl.begin()));
 
     // Assignment
-    gl_string v2(20);
+    gl_string v2(20, 'c');
 
     v2 = v_stl;
 

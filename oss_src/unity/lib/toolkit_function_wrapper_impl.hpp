@@ -16,11 +16,19 @@
 #include <boost/mpl/placeholders.hpp>
 #include <boost/mpl/range_c.hpp>
 #include <boost/mpl/transform.hpp>
+#include <boost/mpl/contains.hpp>
+#include <boost/mpl/vector.hpp>
+#include <boost/mpl/bool.hpp>
+#include <boost/mpl/count.hpp>
+#include <boost/fusion/mpl.hpp>
 #include <boost/fusion/mpl/at.hpp>
+#include <boost/fusion/mpl/erase.hpp>
 #include <boost/fusion/include/vector.hpp>
 #include <boost/fusion/include/as_vector.hpp>
 #include <boost/fusion/algorithm/iteration/for_each.hpp>
 #include <boost/fusion/functional/invocation/invoke.hpp>
+#include <boost/fusion/sequence/intrinsic/size.hpp>
+
 #include <boost/type_traits.hpp>
 #include <boost/type_traits/function_traits.hpp>
 #include <unity/lib/toolkit_function_invocation.hpp>

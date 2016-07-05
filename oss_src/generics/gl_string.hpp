@@ -10,7 +10,6 @@
 
 #include <generics/vector_internals.hpp>
 #include <generics/string_internals.hpp>
-#include <util/cityhash_gl.hpp>
 #include <algorithm>
 
 namespace graphlab {
@@ -52,10 +51,6 @@ class gl_string {
       : info(nullptr)
   {}
 
-  explicit gl_string (size_t n)
-  : info(gl_vector_internal::construct<value_type>(n))
-  {}
-
   gl_string (size_t n, const value_type& val)
       : info(gl_vector_internal::construct<value_type>(n, val))
   {}
@@ -71,7 +66,7 @@ class gl_string {
     }
   }
   
-  explicit gl_string (const std::string& v)
+  gl_string (const std::string& v)
       : info(gl_vector_internal::construct<value_type>(v.begin(), v.end()))
   {}
 
@@ -1125,6 +1120,16 @@ static inline void swap (graphlab::gl_string& a, graphlab::gl_string& b) noexcep
   a.swap(b);
 }
 
+}
+
+#include <util/cityhash_gl.hpp>
+
+namespace graphlab {
+static inline uint64_t hash64(const char* l, size_t n);
+}
+
+
+namespace std {
 template <> struct hash<graphlab::gl_string>
     : public unary_function<graphlab::gl_string, size_t> {
   
