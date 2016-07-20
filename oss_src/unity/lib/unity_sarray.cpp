@@ -5,7 +5,6 @@
  * This software may be modified and distributed under the terms
  * of the BSD license. See the LICENSE file for details.
  */
-#include <cmath>
 #include <boost/heap/priority_queue.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/date_time/local_time/local_time.hpp>
@@ -43,7 +42,7 @@
 #include <sframe_query_engine/util/aggregates.hpp>
 #include <sframe/rolling_aggregate.hpp>
 #include <unity/lib/gl_sarray.hpp>
-
+#include <cmath>
 namespace graphlab {
 
 using namespace query_eval;
@@ -586,6 +585,21 @@ unity_sarray::logical_filter(std::shared_ptr<unity_sarray_base> index) {
 }
 
 
+struct pqueue_value_type {
+flexible_type val;
+size_t segment_id;
+size_t segment_offset;
+bool operator<(const pqueue_value_type& other) const {
+return val < other.val;
+}
+};
+typedef boost::heap::priority_queue<pqueue_value_type,
+  //  darn this is ugly this defines the comparator type
+  //  as a generic std::function
+  boost::heap::compare<
+      std::function<bool(const pqueue_value_type&,
+			 const pqueue_value_type&)> > > pqueue_type;
+
 std::shared_ptr<unity_sarray_base> unity_sarray::topk_index(size_t k, bool reverse) {
   log_func_entry();
 
@@ -594,20 +608,6 @@ std::shared_ptr<unity_sarray_base> unity_sarray::topk_index(size_t k, bool rever
 
   auto sarray_ptr = get_underlying_sarray();
   // check that I have less than comparable of this type
-  struct pqueue_value_type {
-    flexible_type val;
-    size_t segment_id;
-    size_t segment_offset;
-    bool operator<(const pqueue_value_type& other) const {
-      return val < other.val;
-    }
-  };
-  typedef boost::heap::priority_queue<pqueue_value_type,
-          //  darn this is ugly this defines the comparator type
-          //  as a generic std::function
-          boost::heap::compare<
-              std::function<bool(const pqueue_value_type&,
-                                 const pqueue_value_type&)> > > pqueue_type;
 
   // ok done. now we need to merge the values from all of the queues
   pqueue_type::value_compare comparator;

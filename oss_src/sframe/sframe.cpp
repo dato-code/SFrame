@@ -690,17 +690,17 @@ void sframe::reset() {
 
 
 void sframe::write(size_t segmentid, const std::vector<flexible_type>& t) {
-  DASSERT_TRUE(group_writer != NULL);
+  DASSERT_TRUE(group_writer != nullptr);
   group_writer->write_segment(segmentid, t);
 }
 
 void sframe::write(size_t segmentid, std::vector<flexible_type>&& t) {
-  DASSERT_TRUE(group_writer != NULL);
+  DASSERT_TRUE(group_writer != nullptr);
   group_writer->write_segment(segmentid, std::forward<std::vector<flexible_type>>(t));
 }
 
 void sframe::write(size_t segmentid, const sframe_rows& t) {
-  DASSERT_TRUE(group_writer != NULL);
+  DASSERT_TRUE(group_writer != nullptr);
   group_writer->write_segment(segmentid, t);
 }
 

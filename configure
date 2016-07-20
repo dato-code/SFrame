@@ -8,7 +8,7 @@ GRAPHLAB_HOME=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 DEPS_PREFIX=$PWD/deps/local
 
 if [[ $OSTYPE == linux* ]]; then
-        DEFAULT_DATO_DEPS_VERSION=12
+        DEFAULT_DATO_DEPS_VERSION=13
 elif [[ $OSTYPE == darwin* ]]; then
         DEFAULT_DATO_DEPS_VERSION=12
 elif [[ $OSTYPE == msys ]]; then
@@ -288,7 +288,7 @@ fi
 
 mkdir -p doc
 
-export LD_LIBRARY_PATH=${PWD}/deps/local/lib:${PWD}/deps/local/lib64:$PWD
+# export LD_LIBRARY_PATH=${PWD}/deps/local/lib:${PWD}/deps/local/lib64:$PWD
 echo "======================= BUILD CONFIGURATION ========================"
 echo "System Information: " 
 uname -v

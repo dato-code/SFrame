@@ -128,8 +128,8 @@ class space_saving_test: public CxxTest::TestSuite {
     std::vector<double> epsilon{0.1,0.01,0.005};
 
     size_t n_idx = lens.size() * ranges.size() * epsilon.size(); 
-
-    in_parallel([&](size_t thread_idx, size_t n_threads) {
+    size_t thread_idx = 0;
+    size_t n_threads = 1;
         for(size_t run_idx = thread_idx; run_idx < n_idx; run_idx += n_threads) {
             
           auto len   = lens[ run_idx / (epsilon.size() * ranges.size()) ];
@@ -154,12 +154,10 @@ class space_saving_test: public CxxTest::TestSuite {
                     << random_integer_length_test<space_saving_flextype>(len, range, eps)
                     << std::endl;
         }
-      }); 
         
     std::cout << "\n\nReset random seed and repeating with \'parallel\' test\n";
     graphlab::random::seed(1001);
       
-    in_parallel([&](size_t thread_idx, size_t n_threads) {
         for(size_t run_idx = thread_idx; run_idx < n_idx; run_idx += n_threads) {
           
           auto len   = lens[ run_idx / (epsilon.size() * ranges.size()) ];
@@ -184,7 +182,6 @@ class space_saving_test: public CxxTest::TestSuite {
                     << parallel_combine_test<space_saving_flextype>(len, range, eps)
                     << std::endl;
         }
-      });
       
   }
 

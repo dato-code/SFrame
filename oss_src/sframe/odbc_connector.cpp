@@ -995,7 +995,7 @@ void odbc_connector::map_types_for_writing(sframe &sf, bool optimize_db_storage)
         }
         auto the_dict = (*it).get<flex_dict>();
         auto find_ret = std::find(the_dict.begin(), the_dict.end(),
-            std::pair<flexible_type, flexible_type>("_SQL_INTERVAL", 1));
+            std::pair<flexible_type, flexible_type>(std::string("_SQL_INTERVAL"), 1));
         if(find_ret != the_dict.end()) {
           interval_column = true;
 

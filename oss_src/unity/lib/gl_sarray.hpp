@@ -707,7 +707,7 @@ class gl_sarray {
    *
    * \see count_ngrams
    */
-  gl_sarray count_words(bool to_lower=true, graphlab::flex_list delimiters={"\r", "\v", "\n", "\f", "\t", " "}) const;
+  gl_sarray count_words(bool to_lower=true, graphlab::flex_list delimiters={flex_string("\r"), flex_string("\v"), flex_string("\n"), flex_string("\f"), flex_string("\t"), flex_string(" ")}) const;
 
 
   /** 

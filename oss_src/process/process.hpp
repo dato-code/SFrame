@@ -28,6 +28,9 @@
 #ifdef __APPLE__
 #include <sys/types.h>
 #endif
+#ifdef __linux__
+#include <sys/types.h>
+#endif
 namespace graphlab
 {
 

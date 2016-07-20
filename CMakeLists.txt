@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 2.8.3)
 
 # Libraries linked via full path no longer produce linker search paths.
 cmake_policy(SET CMP0003 NEW)
-# Preprocessor definition values are now escaped automatically.
+# Preprocessor definition values are now escaped automaticallyn.
 cmake_policy(SET CMP0005 NEW)
 # for cmake 3.0
 if(${CMAKE_MAJOR_VERSION} GREATER 2)
@@ -34,6 +34,8 @@ include(CheckLibraryExists)
 include(CheckFunctionExists)
 include(ExternalProject)
 include(CheckCXXSourceCompiles)
+
+
 
 #**************************************************************************/
 #*                                                                        */
@@ -104,6 +106,14 @@ if (WIN32)
         ${MINGW_ROOT}/libgcc_s_seh-1.dll
         ${MINGW_ROOT}/libstdc++-6.dll
         ${MINGW_ROOT}/libeay32.dll)
+elseif(APPLE)
+else()
+        if (EXISTS ${CMAKE_SOURCE_DIR}/deps/local/lib64/libc++abi.so.1)
+		set(INSTALLATION_SYSTEM_BINARY_FILES 
+		  ${CMAKE_SOURCE_DIR}/deps/local/lib64/libc++abi.so.1
+		)
+        endif()
+
 endif()
 
 
@@ -338,6 +348,8 @@ endif()
 ##############################################################################
 ##############################################################################
 
+add_library(libcxxabi STATIC IMPORTED)
+set_property(TARGET libcxxabi PROPERTY IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/deps/local/lib/libc++abi.a)
 
 # some useful utilities
 include(add_cxxtest)
@@ -393,7 +405,8 @@ foreach(package ${packages})
         string(TOLOWER ${depname} depname)
         set(package_${depname} requires_${depname} CACHE STRING "Package map")
 endforeach()
-
+target_link_libraries(boost INTERFACE c++abi)
+target_link_libraries(z INTERFACE c++abi)
 
 # This is an internal function and should not be used
 # Usage:
@@ -422,7 +435,7 @@ macro(make_target_impl NAME FLAGS REQUIREMENTS IS_LIBRARY SHARED)
   else()
     message(STATUS "Adding Executable: ${NAME}")
     # default dependencies
-    target_link_libraries(${NAME} boost pthread openmp)
+    target_link_libraries(${NAME} boost pthread openmp libcxxabi)
   endif()
 
   set_property(TARGET ${NAME} PROPERTY IS_LIBRARY ${IS_LIBRARY})
@@ -540,7 +553,7 @@ macro(make_library NAME)
 
   if(NOT CLANG)
     if (NOT WIN32)
-    set_property(TARGET ${NAME} APPEND_STRING PROPERTY LINK_FLAGS " -static-libstdc++ ")
+    set_property(TARGET ${NAME} APPEND_STRING PROPERTY LINK_FLAGS " -static-libstdc++")
     endif()
   endif()
 endmacro()

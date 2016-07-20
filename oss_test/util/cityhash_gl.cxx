@@ -162,7 +162,7 @@ class hash_function_test : public CxxTest::TestSuite {
     for(size_t i = 0; i < 10000; ++i) {
       double prop = (double(i) / 10000);
 
-      DASSERT_DELTA(prop, hash64_proportion_cutoff(prop) / std::numeric_limits<uint64_t>::max(), 1e-6);
+      DASSERT_DELTA(prop, double(hash64_proportion_cutoff(prop)) / std::numeric_limits<uint64_t>::max(), 1e-6);
     }
   }
   
