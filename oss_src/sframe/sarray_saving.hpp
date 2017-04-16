@@ -73,6 +73,7 @@ void sarray_save_blockwise(const sarray<T>& cur_column,
       advance_column_blocks_to_next_block(block_manager, col);
       // if there are still blocks. push it back 
     }
+    block_manager.close_column(col.segment_address);
 
     // close writers.
     writer.close_segment(0);
