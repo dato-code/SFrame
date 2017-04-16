@@ -119,7 +119,7 @@ struct cache_block {
 
   /**
    * If this cache block is an in memory cache, dumps it to a file returning
-   * the output file handle. Fails if the cache block is not an in memory cache.
+   * the output file handle. Fails if the cache block is not an in memory cache, or fail writing to disk.
    * Thread safe.
    */
   std::shared_ptr<fileio_impl::general_fstream_sink> write_to_file();
