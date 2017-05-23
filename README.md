@@ -64,7 +64,7 @@ SFrame requires a 64-bit operating system.
 
 **Python**
 - Python 2.7.x
-- Pyhton 3.4.x
+- Python 3.4.x
 - **Note**: Unfortunately, Python 3.5.x is currently not supported. This is coming soon.
 
 Build Dependencies
