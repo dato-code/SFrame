@@ -1,3 +1,8 @@
+# **THIS REPOSITORY IS DEPRECATED.**
+# THE FUNCTIONALITY HAS MOVED TO [Turi Create](https://github.com/apple/turicreate). 
+
+____
+
 SFrame
 ======
 <a href="https://pypi.python.org/pypi/SFrame">
