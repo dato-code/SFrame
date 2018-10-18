@@ -6,4 +6,4 @@
  * of the BSD license. See the LICENSE file for details.
  */
 
-#define __UNITY_VERSION__ "1.10"//#{{VERSION_STRING}}
+#define __UNITY_VERSION__ "2.0.1"//#{{VERSION_STRING}}
